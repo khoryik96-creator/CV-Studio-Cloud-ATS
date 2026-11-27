@@ -46,3 +46,21 @@ class TestCvApi(unittest.TestCase):
         self.assertEqual(result.headers["X-CV-Review-Required"],"1")
         self.assertIn("attachment",result.headers["Content-Disposition"])
         self.assertEqual(result.headers["Cache-Control"],"no-store")
+
+    def test_preview_authorization_and_review(self):
+        import io,zipfile
+        url="/api/jobs/"+self.job+"/preview"
+        self.assertEqual(self.client.get(url,base_url=ORIGIN).status_code,401)
+        self.login()
+        self.outputs.download.return_value=None
+        self.assertEqual(self.client.get(url,base_url=ORIGIN).status_code,404)
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,"w") as z:
+            z.writestr("word/document.xml",'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Fictional &amp; safe</w:t></w:r></w:p></w:body></w:document>')
+        self.outputs.download.return_value=Download(buf.getvalue(),True)
+        self.assertEqual(self.client.get(url,base_url=ORIGIN).status_code,409)
+        result=self.client.get(url+"?review=1",base_url=ORIGIN)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json["paragraphs"],["Fictional & safe"])
+        self.assertTrue(result.json["requires_review"])
+        self.assertEqual(result.headers["Cache-Control"],"no-store")

@@ -70,6 +70,21 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs):
             return jsonify(error="not_found"),404
         return jsonify(job_id=row[0],module=row[1],state=row[2],document_id=row[3])
 
+    @app.get("/api/jobs/<uuid:job_id>/preview")
+    @protected()
+    def preview(principal,job_id):
+        from cloud.output_preview import preview_paragraphs,PreviewError
+        result=outputs.download(principal,str(job_id))
+        if result is None:
+            return jsonify(error="not_found"),404
+        if result.requires_review and request.args.get("review")!="1":
+            return jsonify(error="review_required"),409
+        try:
+            paragraphs=preview_paragraphs(result.document)
+        except PreviewError:
+            return jsonify(error="preview_unavailable"),503
+        return jsonify(job_id=str(job_id),requires_review=result.requires_review,paragraphs=paragraphs)
+
     @app.get("/api/jobs/<uuid:job_id>/download")
     @protected()
     def download(principal,job_id):
