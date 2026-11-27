@@ -49,6 +49,8 @@ def _validate_sources(sources):
         total+=len(_text(source.text,MAX_SOURCE_TEXT))
         if total>MAX_SOURCE_TEXT:
             raise ProfileError("source_limit")
+        if not isinstance(source.url,str) or not isinstance(source.retrieved_on,str):
+            raise ProfileError("invalid_source_metadata")
         if source.url:
             url=_text(source.url,2048)
             try:
@@ -110,6 +112,7 @@ def validate(report,company_name,sources):
         if not isinstance(evidence,list) or not 1<=len(evidence)<=4:
             raise ProfileError("missing_evidence")
         verified=[]
+        seen_evidence=set()
         for item in evidence:
             if not isinstance(item,dict) or set(item)!={"source_id","quote"} or not isinstance(item["source_id"],str) or item["source_id"] not in by_id:
                 raise ProfileError("unknown_source")
@@ -117,6 +120,10 @@ def validate(report,company_name,sources):
             quote=_text(item["quote"],1000)
             if quote not in source.text:
                 raise ProfileError("unverifiable_quote")
+            evidence_key=(source.id,quote)
+            if evidence_key in seen_evidence:
+                raise ProfileError("duplicate_evidence")
+            seen_evidence.add(evidence_key)
             verified.append({"source_id":source.id,"quote":quote})
         checked.append({"section":claim["section"],"text":statement,"evidence":verified})
     return {"company_name":company_name,"claims":checked,"limitations":[_text(x,1000) for x in limits],

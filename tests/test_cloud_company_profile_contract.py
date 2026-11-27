@@ -32,3 +32,11 @@ class TestProfileContract(unittest.TestCase):
         self.report["claims"]=[]
         with self.assertRaises(ProfileError):
             self.check()
+
+    def test_duplicate_evidence_and_malformed_metadata(self):
+        self.report["claims"][0]["evidence"]*=2
+        with self.assertRaises(ProfileError):
+            self.check()
+        for source in (Source("a","Title","Text",url=None),Source("a","Title","Text",retrieved_on=123)):
+            with self.assertRaises(ProfileError):
+                prepare("ExampleCo",[source])
