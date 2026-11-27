@@ -3,13 +3,13 @@
 (()=>{
  const el=id=>document.getElementById(id);
  const rawFetch=window.fetch.bind(window);
- let binding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
+ let binding=null,providerBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
  const say=text=>{el("cloudMessage").textContent=text;};
  const login=el("cloudLogin"),logout=el("cloudLogout");
  const client=CVCloudClient.create({fetcher:rawFetch,uuid:()=>crypto.randomUUID()});
  function reset(){
    generation++;clearInterval(poll);clearTimeout(sessionTimer);poll=null;sessionTimer=null;
-   if(binding)binding.dispose();binding=null;client.clear();
+   if(binding)binding.dispose();binding=null;if(providerBinding)providerBinding.dispose();providerBinding=null;client.clear();
    el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;el("cloudLoginPanel").style.display="";logout.hidden=true;logout.style.display="none";
    login.reset();choose("paste");el("cloudAlignment").value="left";el("cloudLanguage").checked=false;el("cloudNeutral").checked=false;
    el("dzFileName").textContent="";el("charCount").textContent="0 characters";
@@ -21,8 +21,8 @@
      el("panel"+suffix).classList.toggle("active",key===value);
    }
  }
- function attach(){
-   if(binding)binding.dispose();
+ function attach(role){
+   if(binding)binding.dispose();if(providerBinding)providerBinding.dispose();
    const epoch=generation;
    binding=CVCloudExistingControls.bind({document,client,
      readInputMode:()=>mode,
@@ -34,6 +34,9 @@
        const a=document.createElement("a");a.href=url;a.download=result.filename;document.body.append(a);a.click();a.remove();
        setTimeout(()=>URL.revokeObjectURL(url),1000);
      }});
+   if(el("cloudProviderToggle")&&["owner","admin"].includes(role)){
+     providerBinding=CVCloudProviderSettings.bind({document,client,confirmDisable:()=>window.confirm("Disable organisation AI processing? Existing in-flight requests cannot be recalled."),onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
+   }
    el("cloudLoginPanel").hidden=true;el("cloudLoginPanel").style.display="none";el("cloudContent").style.display="block";logout.hidden=false;logout.style.display="";
    let refreshing=false;
    poll=setInterval(async()=>{
@@ -52,13 +55,14 @@
    try{
      const res=await rawFetch("/api/auth/login",{method:"POST",credentials:"same-origin",cache:"no-store",redirect:"error",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
      if(!res.ok)throw Error("login_failed");
-     await client.hydrate();
-     if(epoch===generation){login.reset();attach();say("");}
+     const session=await client.hydrate();
+     if(epoch===generation){login.reset();attach(session.role);say("");}
    }catch{if(epoch===generation)say("Sign-in failed or staging service unavailable.");}
    finally{login.elements.password.value="";button.disabled=false;}
  });
  logout.addEventListener("click",async()=>{
    if(closing)return;closing=true;logout.disabled=true;
+   if(providerBinding)providerBinding.dispose();providerBinding=null;
    try{await client.logout();reset();say("Signed out.");}
    catch{reset();say("Local view cleared; server sign-out was not confirmed. Close this browser session.");}
    finally{closing=false;logout.disabled=false;}
