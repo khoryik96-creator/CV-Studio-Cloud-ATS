@@ -69,6 +69,29 @@ class TestPostgres(unittest.TestCase):
         self.assertEqual(self.repo.job(a,job)[2],"needs_review")
         self.assertIsNone(worker.claim(a))
 
+    def test_cv_claim_filter_and_concurrent_owner_admission(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from cloud.worker_leases import WorkerLeases
+        a,b=self.principals
+        doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
+        scoring=self.repo.enqueue(a,document_id=doc,module="cv_scoring",idempotency_key=str(uuid4()))
+        jobs=[self.repo.enqueue(a,document_id=doc,module="cv_formatting",idempotency_key=str(uuid4())) for _ in range(2)]
+        workers=WorkerLeases(self.repo)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            claims=list(pool.map(lambda _:workers.claim(a,cv_only=True),range(2)))
+        won=[lease for lease in claims if lease is not None]
+        self.assertEqual(len(won),1)
+        self.assertIn(won[0].job_id,jobs)
+        self.assertEqual(self.repo.job(a,scoring)[2],"queued")
+        self.assertIsNone(workers.claim(b,cv_only=True))
+        self.assertTrue(workers.finish(a,won[0],"needs_review"))
+        second=workers.claim(a,cv_only=True)
+        self.assertIsNotNone(second)
+        self.assertNotEqual(second.job_id,won[0].job_id)
+        self.assertTrue(workers.finish(a,second,"needs_review"))
+        self.assertIsNone(workers.claim(a,cv_only=True))
+        self.assertEqual(self.repo.job(a,scoring)[2],"queued")
+
     def test_ai_budget_atomic_and_fenced(self):
         from cloud.ai_budget import AIBudget,BudgetDenied
         from cloud.worker_leases import WorkerLeases
