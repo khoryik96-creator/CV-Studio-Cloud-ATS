@@ -184,7 +184,16 @@ def _word_text(raw):
                     chunks.append((entry.filename,"".join(t.text or "" for t in node.iter() if isinstance(t.tag,str) and t.tag.rsplit("}",1)[-1] in ("t","delText","instrText"))))
                 elif node.text and node.text.strip():
                     chunks.append((entry.filename,node.text))
-                chunks.extend((entry.filename,value) for value in node.attrib.values())
+                for key,value in node.attrib.items():
+                    # ECMA-376 font Unicode/codepage bitmasks are fixed-width hex,
+                    # not candidate contact fields. All other attributes are swept,
+                    # including font names, relationship targets and document IDs.
+                    w="{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+                    if (entry.filename=="word/fontTable.xml" and node.tag==w+"sig"
+                            and key in {w+n for n in ("usb0","usb1","usb2","usb3","csb0","csb1")}
+                            and re.fullmatch(r"[0-9A-Fa-f]{8}",value)):
+                        continue
+                    chunks.append((entry.filename,value))
     return chunks
 
 def _shape(value):
