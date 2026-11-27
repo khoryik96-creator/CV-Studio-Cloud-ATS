@@ -144,7 +144,3 @@ def _merge_bullet_level_lists(*lists):
             if key not in best or level > best[key]:
                 best[key] = level
     return [{"text": k, "level": v} for k, v in best.items() if v >= 1]
-
-
-
-# bullet sits on the page, not Word's raw level number).

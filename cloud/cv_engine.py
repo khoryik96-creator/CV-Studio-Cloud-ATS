@@ -10,6 +10,7 @@ from pathlib import Path
 import copy
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -96,6 +97,8 @@ def answer_json(text):
                 stack.extend((v,depth+1) for v in value)
             elif isinstance(value,str):
                 value.encode("utf-8")
+            elif isinstance(value,float) and not math.isfinite(value):
+                raise EngineError("invalid_provider_object")
         if not isinstance(data,dict) or not isinstance(data.get("candidate"),dict) or not isinstance(data.get("work_experiences"),list):
             raise EngineError("invalid_cv_structure")
         for field in ("summary_bullets","education","certifications","skills"):
@@ -184,6 +187,10 @@ def _word_text(raw):
                 chunks.extend(node.attrib.values())
     return "\n".join(chunks)
 
+def _shape(value):
+    return [[[(kind,len(items)) for kind,items in role] for role in exp]
+            for exp in _role_bullet_groups(value)]
+
 def verify_blind_identity(raw, original):
     candidate=original.get("candidate",{})
     text=_word_text(raw)
@@ -218,11 +225,14 @@ def process(source_text, *, complete, blind=False, alignment="left",
             request="Anonymise this parsed CV JSON:\n\n"+json.dumps(prepared,ensure_ascii=False,allow_nan=False)
             value=answer_json(complete("blind",blind_prompt(neutral_gender),request,MAX_TOKENS))
             cv=finish(pipeline.postprocess_blind(steady(value,prepared),prepared))
+            if _shape(prepared)!=_shape(cv):
+                raise EngineError("blind_structure_changed")
             levels=blind_levels(levels,prepared,cv)
             warnings.append("human_anonymisation_review_required")
         document=render(cv,alignment=alignment,levels=levels)
         if blind:
             verify_blind_identity(document,original)
+            verify_blind_identity(document,parsed)
         return Result(document, bool(warnings), tuple(warnings))
     except EngineError:
         raise

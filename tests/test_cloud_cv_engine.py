@@ -16,9 +16,16 @@ class TestEngine(unittest.TestCase):
         self.assertNotIn("9,000",result)
         self.assertIn("Supported payroll",result)
     def test_bad_response(self):
-        for text in ("invalid", '{"candidate":{},"candidate":{},"work_experiences":[]}', '{"candidate":{},"work_experiences":[],"_private":true}', '{"candidate":{},"work_experiences":[],"n":NaN}'):
+        for text in ("invalid", '{"candidate":{},"candidate":{},"work_experiences":[]}', '{"candidate":{},"work_experiences":[],"_private":true}', '{"candidate":{},"work_experiences":[],"n":NaN}', '{"candidate":{},"work_experiences":[],"n":1e999}'):
             with self.assertRaises(EngineError):
                 answer_json(text)
+    def test_identity_sweep_detects_split_runs_and_links(self):
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,"w") as archive:
+            archive.writestr("word/document.xml",'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Avery </w:t></w:r><w:r><w:t>Example</w:t></w:r></w:p></w:body></w:document>')
+            archive.writestr("word/_rels/document.xml.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="mailto:avery@example.invalid"/></Relationships>')
+        with self.assertRaises(EngineError):
+            verify_blind_identity(buf.getvalue(),PARSED)
     @unittest.skipUnless(shutil.which("node"),"Node renderer unavailable")
     def test_format_real_word_document(self):
         calls=[]
