@@ -298,6 +298,139 @@ class TestPostgres(unittest.TestCase):
             self.assertIn('w:val="both"',xml)
             self.assertNotIn("9,000",xml)
 
+    def test_synthetic_staging_composition(self):
+        import io,tempfile,zipfile
+        from cloud.staging import compose_synthetic
+        a,b=self.principals
+        origin="https://cv.example.test"
+        fixtures=Path(__file__).with_name("fixtures")
+        source=(fixtures/"cloud_cv_source.txt").read_text(encoding="utf-8")
+        parsed=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
+        with tempfile.TemporaryDirectory() as folder:
+            env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
+                fixture_source=source,fixture_answer=parsed)
+            client,other=env.app.test_client(),env.app.test_client()
+            page=client.get("/cloud-ui",base_url=origin)
+            self.assertEqual(page.status_code,200)
+            self.assertIn(b'id="btnFormat"',page.data)
+            self.assertNotIn(b'id="tabJobLeads"',page.data)
+            self.assertEqual(client.get("/readyz",base_url=origin).status_code,503)
+            self.assertEqual(client.get("/api/auth/me",base_url=origin).status_code,401)
+            login=client.post("/api/auth/login",base_url=origin,headers={"Origin":origin},
+                json={"tenant":self.ids[0][2],"email":"synthetic@example.test","password":"synthetic-password-123"})
+            self.assertEqual(login.status_code,200)
+            session=client.get("/api/auth/me",base_url=origin).json
+            headers={"Origin":origin,"X-CSRF-Token":session["csrf"]}
+            self.assertEqual(client.post("/api/documents",base_url=origin,data=source.encode(),content_type="text/plain").status_code,403)
+            uploaded=client.post("/api/documents",base_url=origin,headers=headers,data=source.encode(),content_type="text/plain")
+            self.assertEqual(uploaded.status_code,201)
+            job=client.post("/api/jobs",base_url=origin,headers=headers,json={"document_id":uploaded.json["document_id"],
+                "module":"cv_formatting","idempotency_key":str(uuid4()),"alignment":"justify"})
+            self.assertEqual(job.status_code,202)
+            url="/api/jobs/"+job.json["job_id"]
+            self.assertEqual(client.get(url,base_url=origin).json["state"],"queued")
+            self.assertEqual(env.worker.tick(),("completed",))
+            result=client.get(url+"/download?review=1",base_url=origin)
+            self.assertEqual(result.status_code,200)
+            with zipfile.ZipFile(io.BytesIO(result.data)) as z:
+                xml=z.read("word/document.xml").decode()
+            self.assertIn("Disaster Recovery Automation",xml)
+            self.assertNotIn("9,000",xml)
+            login=other.post("/api/auth/login",base_url=origin,headers={"Origin":origin},
+                json={"tenant":self.ids[1][2],"email":"synthetic@example.test","password":"synthetic-password-123"})
+            self.assertEqual(login.status_code,200)
+            self.assertEqual(other.get(url,base_url=origin).status_code,404)
+            self.assertEqual(other.get(url+"/download?review=1",base_url=origin).status_code,404)
+            self.assertEqual(client.post("/api/auth/logout",base_url=origin,headers=headers).status_code,200)
+            self.assertEqual(client.get(url,base_url=origin).status_code,401)
+            self.assertEqual(env.worker.tick(),("idle",))
+
+    @unittest.skipUnless(os.environ.get("CVCLOUD_REQUIRE_BROWSER")=="1","Explicit browser fixture required")
+    def test_original_browser_cv_workflow(self):
+        import tempfile,zipfile
+        from urllib.parse import urlsplit
+        from playwright.sync_api import sync_playwright,expect
+        from cloud.staging import compose_synthetic
+        a,b=self.principals
+        origin="https://cv.example.test"
+        fixtures=Path(__file__).with_name("fixtures")
+        source=(fixtures/"cloud_cv_source.txt").read_text(encoding="utf-8")
+        parsed=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
+        with tempfile.TemporaryDirectory() as folder, sync_playwright() as pw:
+            env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
+                fixture_source=source,fixture_answer=parsed)
+            browser=pw.chromium.launch()
+            context=browser.new_context(accept_downloads=True)
+            page=context.new_page()
+            errors=[]
+            page.on("pageerror",lambda error:errors.append(str(error)))
+            # Real Chromium executes original markup and cloud JavaScript.
+            # All requests are intercepted and delivered to the actual Flask
+            # application with browser headers; no external network or live AI.
+            http=env.app.test_client(use_cookies=False)
+            seen=[]
+            def respond(route):
+                req=route.request
+                url=urlsplit(req.url)
+                if (url.scheme,url.netloc)!=("https","cv.example.test"):
+                    route.abort()
+                    return
+                path=url.path+("?" + url.query if url.query else "")
+                headers={k:v for k,v in req.all_headers().items() if k.lower() not in ("host","content-length")}
+                response=http.open(path,method=req.method,base_url=origin,headers=headers,data=req.post_data_buffer)
+                seen.append((req.method,url.path,response.status_code))
+                body=response.get_data()
+                hdr=dict(response.headers)
+                hdr.pop("Content-Length",None)
+                route.fulfill(status=response.status_code,headers=hdr,body=body)
+                response.close()
+            context.route("**/*",respond)
+            try:
+                page.goto(origin+"/cloud-ui")
+                expect(page.locator("#cloudLoginPanel")).to_be_visible()
+                expect(page.locator("#cloudContent")).to_be_hidden()
+                page.locator('[name="tenant"]').fill(self.ids[0][2])
+                page.locator('[name="email"]').fill("synthetic@example.test")
+                page.locator('[name="password"]').fill("synthetic-password-123")
+                page.locator("#cloudLogin button").click()
+                expect(page.locator("#cloudContent")).to_be_visible()
+                expect(page.locator("#cloudLoginPanel")).to_be_hidden()
+                expect(page.locator("#btnFormat")).to_be_enabled()
+                expect(page.locator("#tabBatch")).to_be_disabled()
+                assert page.locator("#tabJobLeads").count()==0
+                page.locator("#cvInput").fill(source)
+                page.locator("#cloudAlignment").select_option("justify")
+                page.locator("#btnFormat").click()
+                expect(page.locator("#stepText")).to_contain_text("Queued")
+                self.assertEqual(env.worker.tick(),("completed",))
+                page.locator("#cloudRefresh").click()
+                expect(page.locator("#btnDocx")).to_be_enabled()
+                page.on("dialog",lambda dialog:dialog.accept())
+                with page.expect_download() as pending:
+                    page.locator("#btnDocx").click()
+                download=pending.value
+                self.assertTrue(download.suggested_filename.endswith(".docx"))
+                with zipfile.ZipFile(download.path()) as z:
+                    xml=z.read("word/document.xml").decode()
+                self.assertIn("Disaster Recovery Automation",xml)
+                self.assertNotIn("9,000",xml)
+                self.assertIn(('POST','/api/documents',201),seen)
+                self.assertIn(('POST','/api/jobs',202),seen)
+                page.locator("#cloudLogout").click()
+                expect(page.locator("#cloudLoginPanel")).to_be_visible()
+                expect(page.locator("#cloudContent")).to_be_hidden()
+                self.assertEqual(page.locator("#cvInput").input_value(),"")
+                self.assertEqual(page.evaluate("localStorage.length"),0)
+                self.assertEqual(page.evaluate("sessionStorage.length"),0)
+                self.assertFalse(errors,errors)
+            finally:
+                context.close()
+                browser.close()
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
