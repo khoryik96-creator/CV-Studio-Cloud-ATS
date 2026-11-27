@@ -1,5 +1,7 @@
 # CV Studio — Collaboration / Handoff Notes
 
+**Cloud fork:** the current project plan and live milestone status are in [issue #9](https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/issues/9). The desktop release notes below are historical. References to the removed desktop planning documents resolve through the [pre-cleanup snapshot](https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/tree/5595bb61a42d9bd2af5fc39f403fc25b4fd6d8b4). Preserve original design, retained modules, formatting rules, regression checks and release safety.
+
 **Read this first, before making any change — this file is the front door for
 every contributor (human or AI).** CV Studio is a Flask **modular monolith**
 (single `app.py`, ~13k lines; current release is in the repo-root `VERSION`

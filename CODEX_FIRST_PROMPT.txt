@@ -7,7 +7,8 @@ First read:
 - AGENTS.md for contributor and safety rules.
 - README.md for the maintained documentation map and historical archive.
 - docs/QA.md for current validation and known limits.
-- Relevant module notes, ROADMAP.md, PHASE_STATUS.md and IMPLEMENT.md.
+- Relevant module notes and current cloud roadmap: https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/issues/9.
+- Archived desktop planning records are linked from README.md.
 
 Inspect Git status, preserve existing work, and implement the owner's current
 request with focused changes and appropriate tests. Update current documentation
