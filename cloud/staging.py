@@ -22,7 +22,7 @@ class SyntheticEnvironment:
     app: object
     worker: WorkerRuntime
 
-def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,concurrency=1):
+def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,concurrency=1,enable_batch=False):
     """Run one known fictional fixture through real storage/queue/renderer.
 
     A worker may accept only the exact supplied fixture text after the engine's
@@ -51,7 +51,7 @@ def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_so
             return Completion(fixture_answer,100,100)
         return policy,fake
     app=create_app(auth_store=PostgresAuthStore(connect),public_origin=public_origin,cv_services=(uploads,repo,outputs))
-    register_existing_ui(app)
+    register_existing_ui(app,enable_batch=enable_batch)
     worker=WorkerRuntime(principals=principals,repository=repo,storage=storage,workers=workers,
         ledger=ledger,outputs=outputs,resolve_provider=resolve,concurrency=concurrency,enable_ocr=False)
     return SyntheticEnvironment(app,worker)

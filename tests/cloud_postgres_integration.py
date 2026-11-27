@@ -362,7 +362,7 @@ class TestPostgres(unittest.TestCase):
             conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
         with tempfile.TemporaryDirectory() as folder, sync_playwright() as pw:
             env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
-                fixture_source=source,fixture_answer=parsed)
+                fixture_source=source,fixture_answer=parsed,enable_batch=True)
             browser=pw.chromium.launch()
             context=browser.new_context(accept_downloads=True)
             page=context.new_page()
@@ -400,7 +400,7 @@ class TestPostgres(unittest.TestCase):
                 expect(page.locator("#cloudContent")).to_be_visible()
                 expect(page.locator("#cloudLoginPanel")).to_be_hidden()
                 expect(page.locator("#btnFormat")).to_be_enabled()
-                expect(page.locator("#tabBatch")).to_be_disabled()
+                expect(page.locator("#tabBatch")).to_be_enabled()
                 assert page.locator("#tabJobLeads").count()==0
                 page.locator("#cvInput").fill(source)
                 page.locator("#cloudAlignment").select_option("justify")
@@ -420,8 +420,27 @@ class TestPostgres(unittest.TestCase):
                 self.assertNotIn("9,000",xml)
                 self.assertIn(('POST','/api/documents',201),seen)
                 self.assertIn(('POST','/api/jobs',202),seen)
+                page.locator("#tabBatch").click()
+                expect(page.locator("#viewBatch")).to_be_visible()
+                page.locator("#batchFileInput").set_input_files([
+                    {"name":"duplicate.txt","mimeType":"text/plain","buffer":source.encode()},
+                    {"name":"duplicate.txt","mimeType":"text/plain","buffer":source.encode()}])
+                expect(page.locator("#batchFileList .batch-file-item")).to_have_count(2)
+                page.locator("#btnBatchRun").click()
+                expect(page.locator("#batchFileList")).to_contain_text("Queued")
+                # Both admissions must finish before ticking the worker.
+                expect(page.locator("#batchFileList")).not_to_contain_text("Ready")
+                expect(page.locator("#batchFileList")).not_to_contain_text("Submitting")
+                expect(page.locator("#batchFileList")).not_to_contain_text("Uploading")
+                self.assertEqual(env.worker.tick(),("completed",))
+                self.assertEqual(env.worker.tick(),("completed",))
+                expect(page.locator("#batchSummary")).to_have_text("2 / 2 finished",timeout=15000)
+                with page.expect_download() as batch_download:
+                    page.locator("#batchFileList button").first.click()
+                self.assertTrue(batch_download.value.suggested_filename.startswith("cv-01"))
                 page.locator("#cloudLogout").click()
                 expect(page.locator("#cloudLoginPanel")).to_be_visible()
+                expect(page.locator("#batchFileList .batch-file-item")).to_have_count(0)
                 expect(page.locator("#cloudContent")).to_be_hidden()
                 self.assertEqual(page.locator("#cvInput").input_value(),"")
                 self.assertEqual(page.evaluate("localStorage.length"),0)
