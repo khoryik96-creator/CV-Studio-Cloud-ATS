@@ -28,6 +28,8 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs):
                     return jsonify(error="not_found"),404
                 except JobConflict:
                     return jsonify(error="quota_or_request_conflict"),409
+                except StorageError:
+                    return jsonify(error="document_validation_or_integrity_failed"),400 if write else 503
                 except (ValueError,TypeError):
                     return jsonify(error="invalid_request"),400
                 except OSError:

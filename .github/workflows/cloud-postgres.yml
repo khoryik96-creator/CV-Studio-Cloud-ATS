@@ -37,6 +37,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt -r requirements-cloud.txt
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: node --version
       - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
       - run: |
           python - <<'PY'
@@ -44,4 +46,4 @@ jobs:
           with psycopg.connect(os.environ["CVCLOUD_TEST_DSN"]) as c:
               c.execute("CREATE ROLE cvcloud_runtime LOGIN PASSWORD 'synthetic-runtime-only' NOSUPERUSER NOBYPASSRLS")
           PY
-      - run: CVCLOUD_REQUIRE_NATIVE_OCR=1 python -m unittest cloud.test_foundation tests.test_cloud_auth_foundation tests.test_cloud_job_state tests.test_cloud_private_storage tests.test_cloud_ai_budget tests.test_cloud_ai_dispatch tests.test_cloud_deepseek tests.test_cloud_ocr_merge tests.test_cloud_native_ocr tests.test_cloud_cv_api tests.test_cloud_cv_runner tests.cloud_ai_secrets tests.cloud_postgres_integration
+      - run: CVCLOUD_REQUIRE_NATIVE_OCR=1 python -m unittest cloud.test_foundation tests.test_cloud_auth_foundation tests.test_cloud_job_state tests.test_cloud_private_storage tests.test_cloud_ai_budget tests.test_cloud_ai_dispatch tests.test_cloud_deepseek tests.test_cloud_ocr_merge tests.test_cloud_native_ocr tests.test_cloud_cv_api tests.test_cloud_cv_runner tests.test_cloud_cv_engine tests.test_cloud_file_extract tests.cloud_ai_secrets tests.cloud_postgres_integration
