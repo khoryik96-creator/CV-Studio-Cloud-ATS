@@ -20,6 +20,9 @@ def execute_cv_job(*,principal,lease,repository,storage,workers,ledger,policy,tr
         if not workers.heartbeat(principal,lease):
             raise JobExecutionError("job_lease_lost")
     check()
+    job_row=repository.job(principal,lease.job_id)
+    if not job_row or tuple(job_row)!=(lease.job_id,lease.module,"running",lease.document_id):
+        raise JobExecutionError("job_lease_metadata_mismatch")
     row=repository.document(principal,lease.document_id)
     if not row or str(row[0])!=lease.document_id:
         raise JobExecutionError("document_not_found")

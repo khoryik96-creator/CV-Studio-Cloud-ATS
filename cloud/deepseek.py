@@ -60,4 +60,7 @@ class DeepSeekTransport:
             raise DispatchError("deepseek_outcome_requires_review") from None
         finally:
             if conn is not None:
-                conn.close()
+                try:
+                    conn.close()
+                except OSError:
+                    pass

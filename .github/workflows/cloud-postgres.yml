@@ -43,4 +43,4 @@ jobs:
           with psycopg.connect(os.environ["CVCLOUD_TEST_DSN"]) as c:
               c.execute("CREATE ROLE cvcloud_runtime LOGIN PASSWORD 'synthetic-runtime-only' NOSUPERUSER NOBYPASSRLS")
           PY
-      - run: python -m unittest cloud.test_foundation tests.test_cloud_auth_foundation tests.test_cloud_job_state tests.test_cloud_private_storage tests.test_cloud_ai_budget tests.test_cloud_ai_dispatch tests.cloud_ai_secrets tests.cloud_postgres_integration
+      - run: python -m unittest cloud.test_foundation tests.test_cloud_auth_foundation tests.test_cloud_job_state tests.test_cloud_private_storage tests.test_cloud_ai_budget tests.test_cloud_ai_dispatch tests.test_cloud_deepseek tests.cloud_ai_secrets tests.cloud_postgres_integration

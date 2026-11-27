@@ -30,7 +30,10 @@ def extract(raw,media_type):
         validate_payload(raw,media_type)
         lines,total,levels=[],0,[]
         if media_type=="text/plain":
-            total=_append(lines,raw.decode("utf-8"),total)
+            text=raw.decode("utf-8")
+            if len(text)>MAX_SOURCE:
+                raise ExtractionError("extracted_text_limit")
+            lines.append(text)
         elif media_type==DOCX:
             import docx
             from docx.oxml.ns import qn
