@@ -39,3 +39,10 @@ class TestScoringExecution(unittest.TestCase):
         with self.assertRaises(DispatchError):
             c("parse","system","user",100)
         self.transport.assert_not_called()
+
+    def test_duplicate_response_keys_are_rejected(self):
+        from cloud.cv_engine import EngineError
+        self.transport.return_value=Completion('{"assessments":[],"assessments":[]}',100,50)
+        with self.assertRaises(EngineError):
+            execute(**self.args)
+        self.ledger.settle.assert_called_once()

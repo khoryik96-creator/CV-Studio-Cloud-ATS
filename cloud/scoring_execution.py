@@ -16,6 +16,6 @@ def execute(*,principal,lease,ledger,policy,transport,cv,jd,criteria,check):
     completion=BudgetedCompletion(ledger,principal,lease,policy,transport)
     text=completion("assess",system,user,8192)
     check()
-    result=validate(answer_json(text),cv,jd,criteria)
+    result=validate(answer_json(text,cv_structure=False),cv,jd,criteria)
     check()
     return result
