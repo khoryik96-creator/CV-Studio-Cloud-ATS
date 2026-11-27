@@ -71,7 +71,7 @@ def _unique(pairs):
 def _constant(_value):
     raise EngineError("invalid_provider_object")
 
-def answer_json(text):
+def answer_json(text, *, cv_structure=True):
     if not isinstance(text,str) or len(text)>MAX_ANSWER_BYTES:
         raise EngineError("invalid_provider_response")
     try:
@@ -99,12 +99,15 @@ def answer_json(text):
                 value.encode("utf-8")
             elif isinstance(value,float) and not math.isfinite(value):
                 raise EngineError("invalid_provider_object")
-        if not isinstance(data,dict) or not isinstance(data.get("candidate"),dict) or not isinstance(data.get("work_experiences"),list):
-            raise EngineError("invalid_cv_structure")
-        for field in ("summary_bullets","education","certifications","skills"):
-            if field in data and not isinstance(data[field],list):
+        if not isinstance(data,dict):
+            raise EngineError("invalid_provider_object")
+        if cv_structure:
+            if not isinstance(data.get("candidate"),dict) or not isinstance(data.get("work_experiences"),list):
                 raise EngineError("invalid_cv_structure")
-        _role_bullet_groups(data)
+            for field in ("summary_bullets","education","certifications","skills"):
+                if field in data and not isinstance(data[field],list):
+                    raise EngineError("invalid_cv_structure")
+            _role_bullet_groups(data)
         return data
     except (ValueError,TypeError,AttributeError,RecursionError,UnicodeError,OverflowError) as exc:
         if isinstance(exc,EngineError):

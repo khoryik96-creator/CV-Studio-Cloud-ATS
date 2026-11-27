@@ -1,0 +1,5 @@
+# M3 budgeted CV scoring execution
+Connects the merged evidence contract to the existing budget reservation/settlement and strict JSON response boundary. Paid stage names are constrained by leased module; scoring uses a distinct stable assess operation ID. Invalid rubric fails before dispatch; invented quotes fail after actual usage settlement. The caller supplies verified source text and recruiter-selected job-relevant requirements, plus a lease check. Human review mandatory; no hiring decisions or candidate ranking. Synthetic tests only.
+
+This is an internal execution primitive, not a runnable scoring workflow. Durable tenant-scoped input bundles (CV, JD, rubric), results, authenticated submission/status/review API, worker routing and the original scoring UI remain pending. No live provider requests, no deployment.
+Review correction: the existing JSON decoder has a CV-specific schema by default. Scoring explicitly opts out of that schema while retaining object, duplicate-key, UTF-8, size and depth checks, then applies its own strict evidence contract. Existing formatting/blinding validation stays enabled by default.
