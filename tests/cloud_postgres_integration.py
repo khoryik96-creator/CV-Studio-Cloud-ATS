@@ -69,6 +69,66 @@ class TestPostgres(unittest.TestCase):
         self.assertEqual(self.repo.job(a,job)[2],"needs_review")
         self.assertIsNone(worker.claim(a))
 
+    def test_provider_config_authorization_rotation_and_dispatch_fence(self):
+        from cloud.provider_config import ProviderConfig,ProviderCatalogue,ProviderConfigError
+        from cloud.ai_secrets import SecretCipher
+        from cloud.ai_dispatch import ModelPolicy,Completion
+        from cloud.auth import Principal
+        a,b=self.principals
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='admin' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        admin=Principal(a.tenant_id,a.user_id,"admin",a.csrf)
+        policy=ModelPolicy("deepseek","synthetic-model",100,200,4096,1024)
+        calls=[]
+        def factory(secret):
+            def send(provider,model,system,prompt,limit):
+                calls.append(secret)
+                return Completion("{}",1,1)
+            return send
+        config=ProviderConfig(self.repo,SecretCipher({"test":b"x"*32},"test"),ProviderCatalogue([policy]),transport_factory=factory)
+        forged=Principal(b.tenant_id,b.user_id,"admin",b.csrf)
+        args=dict(provider="deepseek",model="synthetic-model",secret="synthetic-secret-one",expected_revision=0)
+        with self.assertRaises(ProviderConfigError):
+            config.configure(forged,**args)
+        self.assertEqual(config.configure(admin,**args).revision,1)
+        with self.assertRaises(ProviderConfigError):
+            config.configure(admin,**args)
+        with self.assertRaises(ProviderConfigError):
+            config.resolve(b)
+        with self.assertRaises(ProviderConfigError):
+            config.status(b)
+        self.assertNotIn("secret",repr(config.status(admin)))
+        with psycopg.connect(DSN) as conn:
+            stored=conn.execute("SELECT ciphertext FROM cvcloud.provider_config WHERE tenant_id=%s",(a.tenant_id,)).fetchone()[0]
+            self.assertNotIn(b"synthetic-secret-one",stored)
+        with self.repo.scoped(b) as (conn,tenant,user):
+            self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.provider_config").fetchone()[0],0)
+        selected,send=config.resolve(admin)
+        self.assertEqual(selected,policy)
+        self.assertEqual(calls,[])
+        self.assertEqual(send("deepseek","synthetic-model","system","fixture",10).text,"{}")
+        self.assertEqual(calls,["synthetic-secret-one"])
+        rotated=config.configure(admin,**dict(args,secret="synthetic-secret-two",expected_revision=1))
+        self.assertEqual(rotated.revision,2)
+        with self.assertRaises(ProviderConfigError):
+            send("deepseek","synthetic-model","system","fixture",10)
+        _,new_send=config.resolve(admin)
+        self.assertEqual(new_send("deepseek","synthetic-model","system","fixture",10).text,"{}")
+        self.assertEqual(calls,["synthetic-secret-one","synthetic-secret-two"])
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='recruiter' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        with self.assertRaises(ProviderConfigError):
+            config.disable(admin,expected_revision=2)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='admin' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        self.assertFalse(config.disable(admin,expected_revision=2).enabled)
+        with self.assertRaises(ProviderConfigError):
+            config.resolve(admin)
+        with self.assertRaises(ProviderConfigError):
+            new_send("deepseek","synthetic-model","system","fixture",10)
+        with psycopg.connect(DSN) as conn:
+            self.assertEqual(conn.execute("SELECT revision,key_version,nonce,ciphertext FROM cvcloud.provider_config WHERE tenant_id=%s",(a.tenant_id,)).fetchone(),(3,None,None,None))
+
     def test_ai_budget_atomic_and_fenced(self):
         from cloud.ai_budget import AIBudget,BudgetDenied
         from cloud.worker_leases import WorkerLeases
