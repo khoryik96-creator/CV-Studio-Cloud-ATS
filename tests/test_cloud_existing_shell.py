@@ -21,6 +21,8 @@ class TestExistingShell(unittest.TestCase):
         with self.assertRaises(ValueError):
             register_existing_ui(app)
         self.assertEqual(app.test_client().get("/cloud-ui").status_code,404)
+        # Use a fresh app: Flask freezes route setup after the first request.
+        app=Flask(__name__,static_folder=None)
         # Only synthetic route contracts; real authenticated staging is separate.
         app.extensions["cvcloud_auth"]=object()
         for i,(path,method) in enumerate([("/api/auth/login","POST"),("/api/auth/me","GET"),("/api/auth/logout","POST"),("/api/documents","POST"),("/api/jobs","POST"),("/api/jobs/<uuid:job_id>","GET"),("/api/jobs/<uuid:job_id>/download","GET")]):
