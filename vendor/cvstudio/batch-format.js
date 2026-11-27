@@ -415,13 +415,14 @@ async function runBatch() {
       // ── Step 2 (blind only): Blind CV ────────────────────────────────────
       if (isBlind) {
         batchSetProgress(bf, pcts[2], 'Blinding identity & company names…', makeSteps(2));
-        var bRes = await fetchWithTimeout('/blind', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ api_key: key, api_key_slot: route.api_key_slot, cv_data: cvData, model: route.model, provider: route.provider, neutralize_candidate_gender: batchBlindCandidateGenderNeutral }) }, 180000);
+        var bRes = await fetchWithTimeout('/blind', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ api_key: key, api_key_slot: route.api_key_slot, cv_data: cvData, bullet_levels: cvMergeLevelLists(batchExtractLevels, batchLabelLevels), model: route.model, provider: route.provider, neutralize_candidate_gender: batchBlindCandidateGenderNeutral }) }, 180000);
         var bData = await bRes.json().catch(function(){ return {}; });
         if (!bRes.ok || bData.error) {
           recordPaidAiFailure('Batch CV blinding failed — ' + bf.file.name, bData, route.model, route.provider);
           throw new Error('Blind: ' + normalizeAiProviderError(bData.error || ('API error ' + bRes.status), route));
         }
         cvData = bData.data;
+        if (Array.isArray(bData.bullet_levels)) { batchExtractLevels = bData.bullet_levels; batchLabelLevels = null; }
         if (bData.summary_pay_removed) bf.parseWarning = cvJoinWarnings(bf.parseWarning, cvSummaryPayNote(bData.summary_pay_removed, false));
         bf.cost += responseCost(bData, route.model, route.provider);
         bf.usage = mergeUsageClient(bf.usage, bData.usage || {});

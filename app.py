@@ -12510,42 +12510,8 @@ def _merge_bullet_level_lists(*lists):
 
 
 def _extract_docx_bullet_levels(file_bytes):
-    """Map nested (w:ilvl >= 1) list paragraphs to their indent level.
-
-    Word stores list nesting in w:numPr/w:ilvl, which the plain-text extraction
-    discards. This side-channel lets the renderer restore the indent
-    deterministically by matching parsed bullet text back to its source level.
-    Only levels >= 1 are recorded; every unmatched bullet renders at level 0.
-    """
-    import io as _io
-    import docx as _docx
-    from docx.oxml.ns import qn
-    out = []
-    seen = set()
-    try:
-        doc = _docx.Document(_io.BytesIO(file_bytes))
-    except Exception:
-        return out
-    for p in doc.element.body.iter(qn("w:p")):
-        ilvl_vals = p.xpath("./w:pPr/w:numPr/w:ilvl/@w:val")
-        if not ilvl_vals:
-            continue
-        try:
-            level = int(ilvl_vals[0])
-        except (TypeError, ValueError):
-            continue
-        if level < 1:
-            continue
-        text = "".join(node.text or "" for node in p.iter(qn("w:t"))).strip()
-        key = _cv_bullet_match_key(text)
-        if not key:
-            continue
-        dedup = (key, level)
-        if dedup in seen:
-            continue
-        seen.add(dedup)
-        out.append({"text": key, "level": min(level, 8)})
-    return out
+    from cvstudio_layout_parity import _extract_docx_bullet_levels as extract
+    return extract(file_bytes)
 
 
 _PDF_BULLET_LEADIN_RE = re.compile(
@@ -14490,9 +14456,10 @@ CANDIDATE GENDER NEUTRALIZATION — ENABLED BY THE USER:
 
 
 def _blind_system_prompt(neutralize_candidate_gender=False):
+    from cvstudio_layout_parity import GUARDRAILS
     if neutralize_candidate_gender is True:
-        return BLIND_SYSTEM_PROMPT + BLIND_CANDIDATE_GENDER_NEUTRALIZATION_INSTRUCTION
-    return BLIND_SYSTEM_PROMPT
+        return BLIND_SYSTEM_PROMPT + BLIND_CANDIDATE_GENDER_NEUTRALIZATION_INSTRUCTION + GUARDRAILS
+    return BLIND_SYSTEM_PROMPT + GUARDRAILS
 
 
 @app.route("/blind", methods=["POST"])
@@ -14558,6 +14525,8 @@ def blind_cv():
 
         # Preserve section/list containers even when the provider flattened the
         # same blinded strings, then run the normal bullet repair before preview.
+        from cvstudio_layout_parity import steady, finish, blind_levels
+        blinded = steady(blinded, cv_data)
         blinded = _blind_restore_cv_bullet_structure(blinded, cv_data)
         blinded = _blind_finalize_summary_bullets(blinded, cv_data)
 
@@ -14573,7 +14542,10 @@ def blind_cv():
         blinded = _blind_scrub_candidate_identity(blinded, cv_data)
         blinded = _normalize_cv_structured_content(blinded)
 
+        blinded = finish(blinded)
         out = {"ok": True, "data": blinded, "usage": usage, "model": model, "provider": llm_provider}
+        if isinstance(body.get("bullet_levels"), list):
+            out["bullet_levels"] = blind_levels(body["bullet_levels"], cv_data, blinded)
         if summary_pay_removed:
             out["summary_pay_removed"] = summary_pay_removed
         out.update(_llm_response_cost_fields(model, usage, llm_provider))
