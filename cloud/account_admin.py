@@ -114,6 +114,9 @@ class AccountAdmin:
                 raise AccountAdminError("account_admin_denied")
             if current[2]!=expected:
                 raise AccountAdminError("account_conflict")
+            pending=conn.execute("SELECT 1 FROM cvcloud.account_challenges WHERE tenant_id=%s AND user_id=%s AND purpose='invite'",(tenant,user)).fetchone()
+            if pending:
+                raise AccountAdminError("account_admin_denied")
             if action=="role_change":
                 if not _allowed(actor_role,value) or value==current[0]:
                     raise AccountAdminError("invalid_role_change")

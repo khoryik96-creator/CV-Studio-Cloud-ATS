@@ -5,7 +5,7 @@ from cloud.auth import Auth, TTL
 
 COOKIE = "__Host-cvcloud"
 
-def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None):
+def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None, onboarding=None):
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=32 * 1024 * 1024)
     @app.get("/healthz")
@@ -17,7 +17,7 @@ def create_app(*, auth_store=None, public_origin=None, cv_services=None, provide
         # routes, production configuration, provisioning or migrations yet.
         return jsonify(status="not_ready", reason="production_storage_and_document_services_not_ready"), 503
     if auth_store is None and public_origin is None:
-        if cv_services is not None or provider_admin is not None or account_admin is not None or ai_usage is not None:
+        if cv_services is not None or provider_admin is not None or account_admin is not None or ai_usage is not None or onboarding is not None:
             raise ValueError('Cloud services require authentication')
         return app
     if auth_store is None or not isinstance(public_origin, str):
@@ -86,6 +86,9 @@ def create_app(*, auth_store=None, public_origin=None, cv_services=None, provide
     if ai_usage is not None:
         from cloud.ai_usage import register
         register(app,auth,COOKIE,ai_usage)
+    if onboarding is not None:
+        from cloud.onboarding_api import register
+        register(app,auth,same_origin,onboarding)
     return app
 
 if __name__ == "__main__":
