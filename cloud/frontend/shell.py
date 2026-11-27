@@ -14,6 +14,7 @@ ASSETS={
     "cv_client.js": FRONTEND/"cv_client.js",
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
+    "provider_settings.js": FRONTEND/"provider_settings.js",
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
 }
 NAV=("Format","Batch","JDAnon","Company","Appraiser")
@@ -43,7 +44,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False):
+def render_shell(*,enable_batch=False,enable_provider_settings=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -118,6 +119,44 @@ def render_shell(*,enable_batch=False):
         bootstrap.addprevious(script)
         options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
         options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
+    if enable_provider_settings:
+        # Reuse only the main AI card, not the desktop settings drawer or
+        # integration cards. Model choices must come from the cloud server.
+        pane=_one(source,"settingsPaneApi")
+        card=deepcopy(_one(pane,"mainProviderSel").getparent())
+        provider=_one(card,"mainProviderSel")
+        model=_one(card,"modelSel")
+        for select in (provider,model):
+            for child in list(select):
+                select.remove(child)
+        for key in ("mainModelInput","btnTest"):
+            item=_one(card,key)
+            item.getparent().remove(item)
+        save=card.xpath(".//button[@onclick='saveKey()']")
+        if len(save)!=1:
+            raise ValueError("Original save control unavailable")
+        save[0].set("id","cloudProviderSave")
+        save[0].text="Save / replace key"
+        key=_one(card,"keyInput")
+        key.set("aria-label","New organisation AI API key")
+        for select,label in ((provider,"AI provider"),(model,"Approved AI model")):
+            select.set("aria-label",label)
+        _one(card,"mainProviderNote").set("role","status")
+        _clean(card)
+        key.set("autocomplete","new-password")
+        key.set("maxlength","4096")
+        for item in (provider,model,key,save[0]):
+            item.set("disabled","disabled")
+        panel=html.fromstring("""<section id="cloudProviderPanel" class="card" style="display:none"><div class="card-head"><h2>Settings · Main API Settings</h2><button id="cloudProviderClose" class="sec" type="button">Close</button></div><div class="card-body"><p>Organisation-wide AI configuration. Existing keys cannot be read back. Enter a new key when replacing settings.</p><div id="cloudProviderFields"></div><div class="btn-row"><button id="cloudProviderReload" type="button" class="sec">Refresh settings</button><button id="cloudProviderDisable" type="button" class="sec" disabled>Disable provider</button></div><p id="cloudProviderStatus" role="status" aria-live="polite"></p></div></section>""")
+        _one(panel,"cloudProviderFields").append(card)
+        settings=deepcopy(_one(source,"btnSettingsToggle"))
+        _clean(settings)
+        settings.set("id","cloudProviderToggle")
+        settings.set("style",settings.get("style","")+";display:none")
+        _one(shell,"cloudLogout").addprevious(settings)
+        content.insert(1,panel)
+        script=html.Element("script",src="/cloud-ui/assets/provider_settings.js",defer="defer")
+        shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
     return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
 
 def register_existing_ui(app, *, enable_batch=False):
@@ -127,7 +166,8 @@ def register_existing_ui(app, *, enable_batch=False):
     required={("/api/auth/login","POST"),("/api/auth/me","GET"),("/api/auth/logout","POST"),("/api/documents","POST"),("/api/jobs","POST"),("/api/jobs/<uuid:job_id>","GET"),("/api/jobs/<uuid:job_id>/download","GET")}
     if "cvcloud_auth" not in app.extensions or not required.issubset(rules):
         raise ValueError("Authenticated CV services required before mounting existing UI")
-    page=render_shell(enable_batch=enable_batch)
+    admin_required={("/api/admin/ai-provider","GET"),("/api/admin/ai-provider","POST"),("/api/admin/ai-provider/disable","POST")}
+    page=render_shell(enable_batch=enable_batch,enable_provider_settings=admin_required.issubset(rules))
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
     def index():

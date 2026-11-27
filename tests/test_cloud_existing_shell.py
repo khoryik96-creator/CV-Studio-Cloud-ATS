@@ -51,3 +51,14 @@ class TestExistingShell(unittest.TestCase):
         self.assertTrue(root.xpath(".//script[@src='/cloud-ui/assets/batch_cloud.js']"))
         for node in root.iter():
             self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
+
+    def test_optional_provider_settings_reuses_only_main_controls(self):
+        root=html.fromstring(render_shell(enable_provider_settings=True))
+        for key in ("cloudProviderPanel","cloudProviderToggle","mainProviderSel","modelSel","keyInput","cloudProviderSave","cloudProviderDisable"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        self.assertFalse(root.xpath(".//*[@id='leadProviderSel' or @id='btnTest' or @id='mainModelInput']"))
+        self.assertFalse(root.xpath(".//*[@id='mainProviderSel']/option | .//*[@id='modelSel']/option"))
+        self.assertEqual(root.xpath(".//*[@id='keyInput']")[0].get("type"),"password")
+        self.assertTrue(root.xpath(".//*[@id='keyInput'][@disabled]"))
+        for node in root.iter():
+            self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))

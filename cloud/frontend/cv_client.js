@@ -74,6 +74,23 @@
       session={csrf:value.csrf,role:value.role};
       return {role:session.role};
     }
+    const adminPath="/api/admin/ai-provider";
+    function adminEpoch(){
+      const expected=active();
+      if(!["owner","admin"].includes(session.role))throw new CloudError("forbidden");
+      return expected;
+    }
+    async function providerStatus({signal}={}){
+      return json(adminPath,{expected:adminEpoch(),signal});
+    }
+    async function configureProvider(payload,{signal}={}){
+      const expected=adminEpoch();
+      return json(adminPath,{method:"POST",write:true,expected,signal,contentType:"application/json",body:JSON.stringify(payload)});
+    }
+    async function disableProvider(expected_revision,{signal}={}){
+      const expected=adminEpoch();
+      return json(adminPath+"/disable",{method:"POST",write:true,expected,signal,contentType:"application/json",body:JSON.stringify({expected_revision})});
+    }
     async function logout(){
       const expected=active();
       await json("/api/auth/logout",{method:"POST",write:true,expected});
@@ -124,7 +141,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider});
   }
   return Object.freeze({create,CloudError,options,source});
 });
