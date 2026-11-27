@@ -10,7 +10,7 @@
  function reset(){
    generation++;clearInterval(poll);clearTimeout(sessionTimer);poll=null;sessionTimer=null;
    if(binding)binding.dispose();binding=null;client.clear();
-   el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;logout.hidden=true;
+   el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;el("cloudLoginPanel").style.display="";logout.hidden=true;logout.style.display="none";
    login.reset();choose("paste");el("cloudAlignment").value="left";el("cloudLanguage").checked=false;el("cloudNeutral").checked=false;
    el("dzFileName").textContent="";el("charCount").textContent="0 characters";
  }
@@ -34,7 +34,7 @@
        const a=document.createElement("a");a.href=url;a.download=result.filename;document.body.append(a);a.click();a.remove();
        setTimeout(()=>URL.revokeObjectURL(url),1000);
      }});
-   el("cloudLoginPanel").hidden=true;el("cloudContent").style.display="block";logout.hidden=false;
+   el("cloudLoginPanel").hidden=true;el("cloudLoginPanel").style.display="none";el("cloudContent").style.display="block";logout.hidden=false;logout.style.display="";
    let refreshing=false;
    poll=setInterval(async()=>{
      if(refreshing||epoch!==generation||!binding)return;
