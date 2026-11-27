@@ -91,6 +91,9 @@
       const expected=adminEpoch();
       return json(adminPath+"/disable",{method:"POST",write:true,expected,signal,contentType:"application/json",body:JSON.stringify({expected_revision})});
     }
+    async function aiUsage({signal}={}){
+      return json("/api/admin/ai-usage",{expected:adminEpoch(),signal});
+    }
     async function accounts({signal}={}){
       return json("/api/admin/accounts",{expected:adminEpoch(),signal});
     }
@@ -153,7 +156,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount,aiUsage});
   }
   return Object.freeze({create,CloudError,options,source});
 });

@@ -1,0 +1,10 @@
+"use strict";
+const assert=require("node:assert/strict"),{validate,dollars}=require("../cloud/frontend/usage_cloud.js");
+const v={configured:true,limit_microusd:"1000000",spent_microusd:"300000",reserved_microusd:"200000",remaining_microusd:"500000",over_limit_microusd:"0"};
+assert.equal(dollars(validate(v).remaining),"$0.500000");
+assert.equal(dollars(9007199254740993n),"$9007199254.740993");
+assert.equal(validate({...v,spent_microusd:"1100000",remaining_microusd:"0",over_limit_microusd:"300000"}).over_limit,300000n);
+assert.throws(()=>validate({...v,remaining_microusd:"1"}));
+assert.throws(()=>validate({...v,spent_microusd:300000}));
+assert.deepEqual(validate({configured:false}),{configured:false});
+console.log("Usage snapshot precision and consistency passed");

@@ -18,6 +18,7 @@ ASSETS={
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
     "history_cloud.js": FRONTEND/"history_cloud.js",
     "account_cloud.js": FRONTEND/"account_cloud.js",
+    "usage_cloud.js": FRONTEND/"usage_cloud.js",
 }
 NAV=("Format","Batch","JDAnon","Company","Appraiser")
 TAGS=frozenset("div span button svg path circle ellipse h2 label input textarea select option p b strong small".split())
@@ -46,7 +47,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_history=False,enable_accounts=False):
+def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -179,6 +180,16 @@ def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_hist
         _one(shell,"cloudLogout").addprevious(button)
         script=html.Element("script",src="/cloud-ui/assets/account_cloud.js",defer="defer")
         shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
+    if enable_usage:
+        panel=html.fromstring("""<section class="card" id="cloudUsagePanel" style="display:none"><div class="card-head"><h2>Organisation AI expenditure</h2><button class="sec" type="button" id="cloudUsageClose">Close</button></div><div class="card-body"><p>Current cumulative internal ledger in USD, not a provider invoice or monthly allowance. Reserved funds include requests whose final charges may still be unknown.</p><button class="sec" type="button" id="cloudUsageRefresh">Refresh usage</button><p role="status" aria-live="polite" id="cloudUsageStatus"></p><div id="cloudUsageValues"></div></div></section>""")
+        content.insert(1,panel)
+        button=html.Element("button",id="cloudUsageToggle",type="button")
+        button.set("class","sec")
+        button.set("style","display:none")
+        button.text="AI usage"
+        _one(shell,"cloudLogout").addprevious(button)
+        script=html.Element("script",src="/cloud-ui/assets/usage_cloud.js",defer="defer")
+        shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
     return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
 
 def register_existing_ui(app, *, enable_batch=False):
@@ -192,7 +203,7 @@ def register_existing_ui(app, *, enable_batch=False):
     history_required={("/api/jobs","GET"),("/api/documents","GET"),("/api/jobs/<uuid:job_id>/preview","GET")}
     accounts_required={("/api/admin/accounts","GET"),("/api/admin/accounts/<uuid:user_id>/actions","POST")}
     page=render_shell(enable_batch=enable_batch,enable_provider_settings=admin_required.issubset(rules),
-        enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules))
+        enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
     def index():
