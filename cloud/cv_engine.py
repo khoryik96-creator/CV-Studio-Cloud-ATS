@@ -148,7 +148,7 @@ def render(data, *, alignment, levels):
         payload,output=Path(tmp)/"input.json",Path(tmp)/"output.docx"
         payload.write_text(json.dumps(prepared,ensure_ascii=False,allow_nan=False),encoding="utf-8")
         try:
-            run=subprocess.run(["node",str(ROOT/"generate.js"),str(payload),str(output)],
+            run=subprocess.run(["node",str(ROOT/"generate.js"),str(payload),str(output),str(ROOT/"cloud"/"templates"/"hyplug.docx")],
                 cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
                 timeout=120,check=False)
             if run.returncode or not output.is_file() or not 1<=output.stat().st_size<=MAX_OUTPUT:
@@ -181,29 +181,42 @@ def _word_text(raw):
                 if not isinstance(node.tag,str):
                     continue
                 if node.tag.endswith("}p"):
-                    chunks.append("".join(t.text or "" for t in node.iter() if isinstance(t.tag,str) and t.tag.rsplit("}",1)[-1] in ("t","delText","instrText")))
+                    chunks.append((entry.filename,"".join(t.text or "" for t in node.iter() if isinstance(t.tag,str) and t.tag.rsplit("}",1)[-1] in ("t","delText","instrText"))))
                 elif node.text and node.text.strip():
-                    chunks.append(node.text)
-                chunks.extend(node.attrib.values())
+                    chunks.append((entry.filename,node.text))
+                chunks.extend((entry.filename,value) for value in node.attrib.values())
     return chunks
 
 def _shape(value):
     return [[[(kind,len(items)) for kind,items in role] for role in exp]
             for exp in _role_bullet_groups(value)]
 
-def verify_blind_identity(raw, original):
+def blind_identity_findings(raw, original):
     candidate=original.get("candidate",{})
     # Keep paragraph and attribute boundaries: unrelated XML numbers must
     # not concatenate into a phone number. Normalize only harmless existing
     # generic-label grammar before comparing; never allowlist personal details.
-    for text in _word_text(raw):
+    findings=set()
+    for part,text in _word_text(raw):
         text=blind_mask._BLIND_LINK_SCHEME_LEFTOVER_RE.sub("[Link Redacted]",text)
         text=blind_mask._BLIND_HONORIFIC_LABEL_RE.sub("the candidate",text)
         text=blind_mask._BLIND_DOUBLED_ARTICLE_RE.sub("the candidate",text)
         text=blind_mask._BLIND_GENERIC_LABEL_SENTENCE_RE.sub(lambda m:m.group(1)+"The candidate",text)
         swept=blind_mask._blind_scrub_candidate_identity({"text":text},{"candidate":copy.deepcopy(candidate)})["text"]
         if swept!=text:
-            raise EngineError("blind_identity_check_failed")
+            # No content, candidate names, email addresses, or paths in findings.
+            # Categories are fixed; only package-part type is exposed.
+            kinds=[]
+            for marker,label in (("[Email Redacted]","email"),("[Phone Redacted]","phone"),("[Link Redacted]","link")):
+                if swept.count(marker)>text.count(marker):
+                    kinds.append(label)
+            area="properties" if part.startswith("docProps/") else "relationships" if part.endswith(".rels") else "body" if part=="word/document.xml" else "other_xml"
+            findings.update((area,kind) for kind in (kinds or ["name_or_identifier"]))
+    return tuple(sorted(findings))
+
+def verify_blind_identity(raw, original):
+    if blind_identity_findings(raw,original):
+        raise EngineError("blind_identity_check_failed")
 
 def process(source_text, *, complete, blind=False, alignment="left",
             correct_language=False, neutral_gender=False, source_levels=None):

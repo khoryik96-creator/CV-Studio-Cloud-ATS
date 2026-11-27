@@ -1,0 +1,3 @@
+# Cloud template parity
+
+Cloud rendering now explicitly uses HyPlug's pinned template (blob 44861eb950f143936de015efc0988617c51f3fd5 at revision c657d83b5e6a37b61e9cb929e066f0f08b1e8605). Its provenance is the sanitized CV Studio handover and later ABOUT HIM / HER heading correction. The original desktop template and default rendering path are unchanged. Exact blob identity was checked, but visual parity and absence of template metadata leaks are not yet verified. The prior blind-output regression still failed; this change tests the template mismatch hypothesis and reports only fixed package-part and identifier categories for diagnosis. No identity detection is disabled. Do not merge until the actual blind regression passes and output is visually reviewed.
