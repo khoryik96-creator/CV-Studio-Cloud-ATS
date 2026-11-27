@@ -584,6 +584,34 @@ class TestPostgres(unittest.TestCase):
         self.assertEqual(client.post(action,base_url=origin,headers=headers,json=payload).status_code,409)
         self.assertEqual(client.post(action,base_url=origin,headers=headers,json={"action":"password_reset","expected_revision":"2","value":"fictional"}).status_code,400)
 
+    def test_admin_ai_usage_isolation(self):
+        from cloud.ai_usage import AIUsage
+        from cloud.app import create_app,COOKIE
+        a,b=self.principals
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+            conn.execute("UPDATE cvcloud.users SET role='admin' WHERE tenant_id=%s AND id=%s",(b.tenant_id,b.user_id))
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd,reserved_microusd,spent_microusd) VALUES (%s,1000000,200000,300000)",(a.tenant_id,))
+        ra=self.auth.login(self.ids[0][2],"synthetic@example.test","synthetic-password-123","usage-fixture-a")
+        rb=self.auth.login(self.ids[1][2],"synthetic@example.test","synthetic-password-123","usage-fixture-b")
+        origin="https://cv.example.test"
+        app=create_app(auth_store=PostgresAuthStore(self.connect),public_origin=origin,ai_usage=AIUsage(self.repo))
+        ca,cb=app.test_client(),app.test_client()
+        ca.set_cookie(COOKIE,ra,domain="cv.example.test",secure=True)
+        cb.set_cookie(COOKIE,rb,domain="cv.example.test",secure=True)
+        url="/api/admin/ai-usage"
+        response=ca.get(url,base_url=origin)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json["remaining_microusd"],"500000")
+        self.assertEqual(response.json["spent_microusd"],"300000")
+        self.assertEqual(cb.get(url,base_url=origin).json,{"configured":False})
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.ai_budgets SET spent_microusd=1100000 WHERE tenant_id=%s",(a.tenant_id,))
+        response=ca.get(url,base_url=origin)
+        self.assertEqual(response.json["remaining_microusd"],"0")
+        self.assertEqual(response.json["over_limit_microusd"],"300000")
+        self.assertEqual(ca.get(url+"?tenant_id="+b.tenant_id,base_url=origin).status_code,400)
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:

@@ -3,13 +3,13 @@
 (()=>{
  const el=id=>document.getElementById(id);
  const rawFetch=window.fetch.bind(window);
- let binding=null,batchBinding=null,providerBinding=null,historyBinding=null,accountBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
+ let binding=null,batchBinding=null,providerBinding=null,historyBinding=null,accountBinding=null,usageBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
  const say=text=>{el("cloudMessage").textContent=text;};
  const login=el("cloudLogin"),logout=el("cloudLogout");
  const client=CVCloudClient.create({fetcher:rawFetch,uuid:()=>crypto.randomUUID()});
  function reset(){
    generation++;clearInterval(poll);clearTimeout(sessionTimer);poll=null;sessionTimer=null;
-   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;client.clear();
+   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;if(usageBinding)usageBinding.dispose();usageBinding=null;client.clear();
    el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;el("cloudLoginPanel").style.display="";logout.hidden=true;logout.style.display="none";
    login.reset();choose("paste");chooseView("Format");el("cloudAlignment").value="left";el("cloudLanguage").checked=false;el("cloudNeutral").checked=false;
    el("dzFileName").textContent="";el("charCount").textContent="0 characters";
@@ -32,7 +32,7 @@
  }
  function attach(session){
    const role=session.role;
-   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;
+   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;if(usageBinding)usageBinding.dispose();usageBinding=null;
    const epoch=generation;
    const readOptions=module=>({alignment:el("cloudAlignment").value,correct_language:el("cloudLanguage").checked,neutral_gender:module==="cv_blinding"&&el("cloudNeutral").checked});
    const confirmReview=()=>window.confirm("Download for human review only? Do not distribute until checked.");
@@ -57,6 +57,9 @@
    }
    if(el("cloudAccountsToggle")&&["owner","admin"].includes(role)&&session.userId){
      accountBinding=CVCloudAccounts.bind({document,client,role,userId:session.userId,confirm:message=>window.confirm(message),onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
+   }
+   if(el("cloudUsageToggle")&&["owner","admin"].includes(role)){
+     usageBinding=CVCloudUsage.bind({document,client,onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
    }
    el("cloudLoginPanel").hidden=true;el("cloudLoginPanel").style.display="none";el("cloudContent").style.display="block";logout.hidden=false;logout.style.display="";
    let refreshing=false;
@@ -83,7 +86,7 @@
  });
  logout.addEventListener("click",async()=>{
    if(closing)return;closing=true;logout.disabled=true;
-   if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;
+   if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;if(usageBinding)usageBinding.dispose();usageBinding=null;
    try{await client.logout();reset();say("Signed out.");}
    catch{reset();say("Local view cleared; server sign-out was not confirmed. Close this browser session.");}
    finally{closing=false;logout.disabled=false;}

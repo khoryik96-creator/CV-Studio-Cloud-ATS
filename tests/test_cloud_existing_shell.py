@@ -80,3 +80,9 @@ class TestExistingShell(unittest.TestCase):
         self.assertFalse(html.fromstring(render_shell()).xpath(".//*[@id='cloudAccountsPanel']"))
         for node in root.iter():
             self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
+
+    def test_optional_usage_panel(self):
+        root=html.fromstring(render_shell(enable_batch=True,enable_provider_settings=True,enable_history=True,enable_accounts=True,enable_usage=True))
+        for key in ("cloudUsageToggle","cloudUsagePanel","cloudUsageRefresh","cloudUsageValues","cloudAccountsPanel","cloudProviderPanel","cloudHistoryPanel"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        self.assertFalse(html.fromstring(render_shell()).xpath(".//*[@id='cloudUsagePanel']"))
