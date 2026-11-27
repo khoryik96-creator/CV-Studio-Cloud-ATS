@@ -26,6 +26,11 @@ class TestEngine(unittest.TestCase):
             archive.writestr("word/_rels/document.xml.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="mailto:avery@example.invalid"/></Relationships>')
         with self.assertRaises(EngineError):
             verify_blind_identity(buf.getvalue(),PARSED)
+    def test_existing_generic_label_is_not_identity_leak(self):
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,"w") as archive:
+            archive.writestr("word/document.xml",'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>the candidate</w:t></w:r></w:p></w:body></w:document>')
+        verify_blind_identity(buf.getvalue(),PARSED)
     @unittest.skipUnless(shutil.which("node"),"Node renderer unavailable")
     def test_format_real_word_document(self):
         calls=[]
