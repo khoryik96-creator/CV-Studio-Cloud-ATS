@@ -120,7 +120,7 @@ async function startFormat(blind) {
         if (_fake2 < 68) { _fake2 += (68 - _fake2) * 0.04; document.getElementById('progressFill').style.width = _fake2 + '%'; }
       }, 300);
 
-      var bRes = await fetchWithTimeout('/blind', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({api_key: key, api_key_slot: route.api_key_slot, cv_data: _parsedData, model: route.model, provider: route.provider, neutralize_candidate_gender: blindCandidateGenderNeutral}) }, 180000);
+      var bRes = await fetchWithTimeout('/blind', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({api_key: key, api_key_slot: route.api_key_slot, cv_data: _parsedData, bullet_levels: cvMergeLevelLists(_extractedBulletLevels, _labelBulletLevels), model: route.model, provider: route.provider, neutralize_candidate_gender: blindCandidateGenderNeutral}) }, 180000);
       var bRawText = await bRes.text();
       var bData;
       try { bData = JSON.parse(bRawText); } catch(je) { throw new Error('Blind API returned invalid JSON:\n' + bRawText.slice(0,600)); }
@@ -130,6 +130,7 @@ async function startFormat(blind) {
       }
       clearInterval(_fakeInterval2);
       _parsedData = bData.data;
+      if (Array.isArray(bData.bullet_levels)) { _extractedBulletLevels = bData.bullet_levels; _labelBulletLevels = null; }
       if (!_parsedData) {
         recordPaidAiFailure('Single CV blinding returned no data', bData, route.model, route.provider);
         throw new Error('Blinding returned no data');
