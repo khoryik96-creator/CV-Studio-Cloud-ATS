@@ -584,6 +584,51 @@ class TestPostgres(unittest.TestCase):
         self.assertEqual(client.post(action,base_url=origin,headers=headers,json=payload).status_code,409)
         self.assertEqual(client.post(action,base_url=origin,headers=headers,json={"action":"password_reset","expected_revision":"2","value":"fictional"}).status_code,400)
 
+    def test_one_time_onboarding_lifecycle(self):
+        from cloud.account_onboarding import AccountOnboarding
+        from cloud.account_admin import AccountAdmin,AccountAdminError
+        from cloud.auth import digest
+        from datetime import timedelta
+        from concurrent.futures import ThreadPoolExecutor
+        a,b=self.principals
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        owner=self.auth.principal(self.auth.login(self.ids[0][2],"synthetic@example.test","synthetic-password-123","onboard-owner"))
+        now=[datetime.now(timezone.utc)]
+        service=AccountOnboarding(self.repo,clock=lambda:now[0])
+        admin=AccountAdmin(self.repo)
+        with self.assertRaises(AccountAdminError):
+            service.invite(b,email="denied@example.test",role="recruiter")
+        invite=service.invite(owner,email="new@example.test",role="recruiter")
+        self.assertNotIn(invite.token,repr(invite))
+        with psycopg.connect(DSN) as conn:
+            row=conn.execute("SELECT token_digest FROM cvcloud.account_challenges WHERE user_id=%s",(invite.user_id,)).fetchone()
+            self.assertEqual(row[0],digest(invite.token))
+            self.assertFalse(conn.execute("SELECT active FROM cvcloud.users WHERE id=%s",(invite.user_id,)).fetchone()[0])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(lambda _:service.redeem(invite.token,"fictional-password-new"),range(2)))
+        self.assertEqual(sorted(results),[False,True])
+        self.assertFalse(service.redeem(invite.token,"fictional-password-new"))
+        raw=self.auth.login(self.ids[0][2],"new@example.test","fictional-password-new","onboard-target")
+        self.assertIsNotNone(self.auth.principal(raw))
+        target=next(x for x in admin.list_accounts(owner) if x.user_id==invite.user_id)
+        reset=service.reset(owner,user_id=target.user_id,expected_revision=target.revision)
+        self.assertIsNone(self.auth.principal(raw))
+        self.assertIsNone(self.auth.login(self.ids[0][2],"new@example.test","fictional-password-new","onboard-target"))
+        target=next(x for x in admin.list_accounts(owner) if x.user_id==invite.user_id)
+        newer=service.reset(owner,user_id=target.user_id,expected_revision=target.revision)
+        self.assertFalse(service.redeem(reset.token,"another-fictional-password"))
+        self.assertTrue(service.redeem(newer.token,"another-fictional-password"))
+        self.assertIsNotNone(self.auth.login(self.ids[0][2],"new@example.test","another-fictional-password","onboard-target"))
+        target=next(x for x in admin.list_accounts(owner) if x.user_id==invite.user_id)
+        blocked=service.reset(owner,user_id=target.user_id,expected_revision=target.revision)
+        target=next(x for x in admin.list_accounts(owner) if x.user_id==invite.user_id)
+        admin.change(owner,user_id=target.user_id,expected_revision=target.revision,action="suspend")
+        self.assertFalse(service.redeem(blocked.token,"third-fictional-password"))
+        expired=service.invite(owner,email="expired@example.test",role="recruiter")
+        now[0]+=timedelta(hours=25)
+        self.assertFalse(service.redeem(expired.token,"fictional-password-new"))
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
