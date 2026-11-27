@@ -113,11 +113,11 @@ class ProviderConfig:
         """Trusted worker resolver; returns policy and a revision-fenced transport."""
         with self.repository.scoped(principal) as (conn,tenant,user):
             self._authorize(conn,tenant,user)
-            row=conn.execute("""SELECT revision,provider,model,key_version,nonce,ciphertext
+            row=conn.execute("""SELECT revision,provider,model
                 FROM cvcloud.provider_config WHERE tenant_id=%s AND enabled""",(tenant,)).fetchone()
             if not row:
                 raise ProviderConfigError("provider_not_configured")
-            revision,provider,model,version,nonce,ciphertext=row
+            revision,provider,model=row
             policy=self.catalogue.get(provider,model)
         # Resolve credential only at dispatch, not during queue admission.
         def transport(request_provider,request_model,system,prompt,limit):
