@@ -43,6 +43,9 @@ class ProviderCatalogue:
                 raise ProviderConfigError("invalid_policy")
             self._policies[key]=p
 
+    def choices(self):
+        return tuple(sorted(self._policies))
+
     def get(self,provider,model):
         key=model_id(provider,model)
         try:
@@ -66,6 +69,11 @@ class ProviderConfig:
             FOR SHARE OF u,t""",(tenant,user)).fetchone()
         if not row or (admin and row[0] not in ("owner","admin")):
             raise ProviderConfigError("provider_access_denied")
+
+    def choices(self,principal):
+        with self.repository.scoped(principal) as (conn,tenant,user):
+            self._authorize(conn,tenant,user,admin=True)
+            return self.catalogue.choices()
 
     def status(self,principal):
         # Administrative status only, never key version, nonce or ciphertext.
