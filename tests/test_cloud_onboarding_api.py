@@ -61,3 +61,74 @@ class TestOnboardingAPI(unittest.TestCase):
             response=self.client.get(path,base_url=ORIGIN)
             self.assertEqual(response.status_code,200)
             response.close()
+
+
+    def test_browser_activation(self):
+        # Required in Linux cloud CI; legacy desktop runners need not install Chromium.
+        import os
+        if os.environ.get("CVCLOUD_REQUIRE_BROWSER") != "1":
+            self.skipTest("Cloud browser gate not enabled")
+        from playwright.sync_api import sync_playwright, expect
+        # Serve real Flask responses to Chromium at the synthetic HTTPS origin.
+        # No external network, real credentials, TLS listener or provider is used.
+        posts=[]
+        unexpected=[]
+        def dispatch(route):
+            req=route.request
+            if not req.url.startswith(ORIGIN+"/"):
+                unexpected.append(req.url)
+                route.abort()
+                return
+            path=req.url[len(ORIGIN):]
+            if req.method=="POST":
+                posts.append((path,req.post_data_json))
+            response=self.client.open(path,method=req.method,base_url=ORIGIN,
+                                      headers=req.all_headers(),data=req.post_data)
+            try:
+                route.fulfill(status=response.status_code,
+                              headers=dict(response.headers),
+                              body=response.get_data())
+            finally:
+                response.close()
+
+        with sync_playwright() as pw:
+            browser=pw.chromium.launch()
+            try:
+                context=browser.new_context(service_workers="block")
+                context.route("**/*",dispatch)
+                page=context.new_page()
+                page.goto(ORIGIN+"/activate")
+                status=page.locator("#activationStatus")
+                expect(status).to_have_text("Ready.")
+                code=page.locator("#activationCode")
+                password=page.locator("#activationPassword")
+                confirm=page.locator("#activationConfirm")
+                submit=page.locator("#activationSubmit")
+                def enter(confirmation=PASSWORD):
+                    code.fill(TOKEN)
+                    password.fill(PASSWORD)
+                    confirm.fill(confirmation)
+                    submit.click()
+                enter("mismatching-password")
+                expect(status).to_contain_text("matching passwords")
+                self.assertEqual(posts,[])
+                for field in (code,password,confirm):
+                    expect(field).to_have_value("")
+                self.service.redeem.return_value=False
+                enter()
+                expect(status).to_contain_text("Code invalid")
+                expect(submit).to_be_enabled()
+                self.service.redeem.return_value=True
+                enter()
+                expect(status).to_have_text("Password set. Return to sign in.")
+                expect(submit).to_be_disabled()
+                for field in (code,password,confirm):
+                    expect(field).to_have_value("")
+                self.assertEqual(posts,[(URL,{"token":TOKEN,"password":PASSWORD})]*2)
+                self.assertEqual(self.service.redeem.call_count,2)
+                self.assertEqual(page.url,ORIGIN+"/activate")
+                self.assertEqual(context.cookies(),[])
+                self.assertEqual(page.evaluate("() => [localStorage.length, sessionStorage.length]"),[0,0])
+                self.assertEqual(unexpected,[])
+            finally:
+                browser.close()
