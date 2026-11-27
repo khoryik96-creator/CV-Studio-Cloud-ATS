@@ -450,6 +450,32 @@ class TestPostgres(unittest.TestCase):
                 context.close()
                 browser.close()
 
+    def test_owner_history_pagination_and_isolation(self):
+        from cloud.job_options import Options
+        a,b=self.principals
+        docs=[self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64) for _ in range(3)]
+        other=self.repo.register_document(b,media_type="text/plain",byte_size=10,sha256="b"*64)
+        jobs=[self.repo.enqueue(a,document_id=d,module="cv_formatting",idempotency_key=str(uuid4()),options=Options()) for d in docs[:2]]
+        self.repo.enqueue(a,document_id=docs[0],module="cv_scoring",idempotency_key=str(uuid4()))
+        first=self.repo.history(a,kind="documents",limit=2)
+        self.assertEqual(len(first["items"]),2)
+        self.assertIsNotNone(first["next_cursor"])
+        second=self.repo.history(a,kind="documents",limit=2,before=first["next_cursor"])
+        self.assertIsNone(second["next_cursor"])
+        all_docs=first["items"]+second["items"]
+        self.assertEqual({x["document_id"] for x in all_docs},set(docs))
+        self.assertFalse(next(x for x in all_docs if x["document_id"]==docs[2])["has_jobs"])
+        first=self.repo.history(a,kind="jobs",limit=1)
+        second=self.repo.history(a,kind="jobs",limit=1,before=first["next_cursor"])
+        self.assertEqual({x["job_id"] for x in first["items"]+second["items"]},set(jobs))
+        self.assertIsNone(second["next_cursor"])
+        self.assertFalse(first["items"][0]["output_available"])
+        self.assertEqual(self.repo.history(b,kind="jobs")["items"],[])
+        with self.assertRaises(ScopeError):
+            self.repo.history(a,kind="documents",before=other)
+        with self.assertRaises(ScopeError):
+            self.repo.history(b,kind="jobs",before=jobs[0])
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:

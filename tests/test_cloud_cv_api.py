@@ -64,3 +64,16 @@ class TestCvApi(unittest.TestCase):
         self.assertEqual(result.json["paragraphs"],["Fictional & safe"])
         self.assertTrue(result.json["requires_review"])
         self.assertEqual(result.headers["Cache-Control"],"no-store")
+
+    def test_history_read_boundary(self):
+        self.assertEqual(self.client.get("/api/jobs",base_url=ORIGIN).status_code,401)
+        self.login()
+        self.repo.history.return_value={"items":[],"next_cursor":None}
+        result=self.client.get("/api/jobs?limit=10",base_url=ORIGIN)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.headers["Cache-Control"],"no-store")
+        self.assertEqual(self.repo.history.call_args.kwargs,{"kind":"jobs","limit":10,"before":None})
+        self.assertEqual(self.client.get("/api/documents?before="+self.doc,base_url=ORIGIN).status_code,200)
+        self.assertEqual(self.repo.history.call_args.kwargs,{"kind":"documents","limit":25,"before":self.doc})
+        for query in ("limit=0&limit=2","limit=000","limit=abc","limit=100","before=bad","owner_id=other"):
+            self.assertEqual(self.client.get("/api/jobs?"+query,base_url=ORIGIN).status_code,400)

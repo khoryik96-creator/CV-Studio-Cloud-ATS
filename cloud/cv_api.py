@@ -62,6 +62,21 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs):
             idempotency_key=uid(body.get("idempotency_key")),options=options)
         return jsonify(job_id=job),202
 
+    @app.get("/api/jobs")
+    @app.get("/api/documents")
+    @protected()
+    def history(principal):
+        if set(request.args)-{"limit","before"} or any(len(request.args.getlist(k))!=1 for k in request.args):
+            return jsonify(error="invalid_request"),400
+        limit=request.args.get("limit","25")
+        if not limit.isascii() or not limit.isdecimal() or len(limit)>2 or str(int(limit))!=limit or not 1<=int(limit)<=50:
+            return jsonify(error="invalid_request"),400
+        before=request.args.get("before")
+        if before is not None and len(before)!=36:
+            return jsonify(error="invalid_request"),400
+        kind="jobs" if request.path=="/api/jobs" else "documents"
+        return jsonify(repository.history(principal,kind=kind,limit=int(limit),before=before))
+
     @app.get("/api/jobs/<uuid:job_id>")
     @protected()
     def status(principal,job_id):
