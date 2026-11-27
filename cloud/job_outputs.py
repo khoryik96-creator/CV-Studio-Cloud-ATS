@@ -31,9 +31,11 @@ class JobOutputs:
         job_id,token=uid(lease.job_id),uid(lease.token)
         # Validate ownership and lease before writing any bytes.
         with self.repository.scoped(principal) as (conn,tenant,owner):
-            row=conn.execute("""SELECT module,document_id::text FROM cvcloud.jobs
-                WHERE tenant_id=%s AND owner_id=%s AND id=%s AND state='running'
-                AND lease_token=%s AND lease_until>clock_timestamp()""",(tenant,owner,job_id,token)).fetchone()
+            row=conn.execute("""SELECT j.module,j.document_id::text FROM cvcloud.jobs j
+                JOIN cvcloud.users u ON (u.tenant_id,u.id)=(j.tenant_id,j.owner_id)
+                JOIN cvcloud.tenants t ON t.id=j.tenant_id
+                WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=%s AND j.state='running'
+                AND j.lease_token=%s AND j.lease_until>clock_timestamp() AND u.active AND t.active""",(tenant,owner,job_id,token)).fetchone()
             if not row or tuple(row)!=(lease.module,uid(lease.document_id)) or lease.module not in ("cv_formatting","cv_blinding"):
                 raise OutputError("invalid_output_lease")
         object_id=str(uuid4())
@@ -45,7 +47,7 @@ class JobOutputs:
                 JOIN cvcloud.tenants t ON t.id=j.tenant_id
                 WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=%s AND j.state='running'
                 AND j.lease_token=%s AND j.lease_until>clock_timestamp()
-                AND u.active AND t.active FOR UPDATE OF j""",(tenant,owner,job_id,token)).fetchone()
+                AND u.active AND t.active FOR UPDATE OF j FOR SHARE OF u,t""",(tenant,owner,job_id,token)).fetchone()
             if not active:
                 raise OutputError("output_lease_lost")
             pending=conn.execute("""SELECT 1 FROM cvcloud.ai_reservations WHERE tenant_id=%s

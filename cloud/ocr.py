@@ -1,6 +1,7 @@
 """Opt-in local OCR, bounded per document. Requires an isolated Linux worker."""
 from dataclasses import dataclass
 import math
+from contextlib import closing
 import threading
 import time
 from cvstudio_document_safety import rendered_pdf_page_is_visually_blank
@@ -37,12 +38,12 @@ def read_pages(raw, page_numbers, *, keep_alive=lambda:None):
                 keep_alive()
                 if time.monotonic()>=deadline:
                     raise OcrError("ocr_deadline")
-                with document[number-1] as page:
+                with closing(document[number-1]) as page:
                     width,height=page.get_size()
                     scale=3.0
                     if not all(math.isfinite(n) and n>0 for n in (width,height)) or math.ceil(width*scale)*math.ceil(height*scale)>MAX_PIXELS:
                         raise OcrError("ocr_page_dimensions")
-                    with page.render(scale=scale) as bitmap:
+                    with closing(page.render(scale=scale)) as bitmap:
                         image=bitmap.to_pil().copy()
                         try:
                             if image.width*image.height>MAX_PIXELS:

@@ -133,7 +133,9 @@ class TestPostgres(unittest.TestCase):
         a,b=self.principals
         doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
         job=self.repo.enqueue(a,document_id=doc,module="cv_blinding",idempotency_key=str(uuid4()))
-        lease=WorkerLeases(self.repo).claim(a)
+        workers=WorkerLeases(self.repo)
+        lease=workers.claim(a)
+        self.assertFalse(workers.finish(a,lease,"succeeded"))
         buf=io.BytesIO()
         with zipfile.ZipFile(buf,"w") as z:
             for name in ("[Content_Types].xml","word/document.xml","_rels/.rels"):

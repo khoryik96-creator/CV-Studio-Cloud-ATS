@@ -56,10 +56,14 @@ class WorkerLeases:
         with self.repository.scoped(principal) as (conn,tenant,owner):
             # Unknown provider billing cannot be represented as a clean success/failure.
             # Reservation and completion both lock the job row before changing it.
-            active=conn.execute("""SELECT id FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
+            active=conn.execute("""SELECT module FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
                 AND id=%s AND state='running' AND lease_token=%s AND lease_until>clock_timestamp()
                 FOR UPDATE""",(tenant,owner,uid(lease.job_id),uid(lease.token))).fetchone()
             if not active:
+                return False
+            # Document-producing jobs must publish through JobOutputs, not
+            # transition to success without a durable downloadable artifact.
+            if target is State.SUCCEEDED and active[0] in ("cv_formatting","cv_blinding"):
                 return False
             pending=conn.execute("""SELECT 1 FROM cvcloud.ai_reservations WHERE tenant_id=%s
                 AND owner_id=%s AND job_id=%s AND settled_at IS NULL LIMIT 1""",

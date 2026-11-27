@@ -185,7 +185,7 @@ def _word_text(raw):
                 elif node.text and node.text.strip():
                     chunks.append(node.text)
                 chunks.extend(node.attrib.values())
-    return "\n".join(chunks)
+    return chunks
 
 def _shape(value):
     return [[[(kind,len(items)) for kind,items in role] for role in exp]
@@ -193,10 +193,17 @@ def _shape(value):
 
 def verify_blind_identity(raw, original):
     candidate=original.get("candidate",{})
-    text=_word_text(raw)
-    swept=blind_mask._blind_scrub_candidate_identity({"text":text},{"candidate":copy.deepcopy(candidate)})["text"]
-    if swept!=text:
-        raise EngineError("blind_identity_check_failed")
+    # Keep paragraph and attribute boundaries: unrelated XML numbers must
+    # not concatenate into a phone number. Normalize only harmless existing
+    # generic-label grammar before comparing; never allowlist personal details.
+    for text in _word_text(raw):
+        text=blind_mask._BLIND_LINK_SCHEME_LEFTOVER_RE.sub("[Link Redacted]",text)
+        text=blind_mask._BLIND_HONORIFIC_LABEL_RE.sub("the candidate",text)
+        text=blind_mask._BLIND_DOUBLED_ARTICLE_RE.sub("the candidate",text)
+        text=blind_mask._BLIND_GENERIC_LABEL_SENTENCE_RE.sub(lambda m:m.group(1)+"The candidate",text)
+        swept=blind_mask._blind_scrub_candidate_identity({"text":text},{"candidate":copy.deepcopy(candidate)})["text"]
+        if swept!=text:
+            raise EngineError("blind_identity_check_failed")
 
 def process(source_text, *, complete, blind=False, alignment="left",
             correct_language=False, neutral_gender=False, source_levels=None):
