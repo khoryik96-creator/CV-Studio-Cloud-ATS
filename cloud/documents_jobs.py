@@ -7,6 +7,7 @@ import re
 
 from cloud.auth import Principal, ROLES
 from cloud.modules import SELECTED_MODULES
+from cloud.job_options import Options
 
 MEDIA_TYPES = frozenset({
     "application/pdf",
@@ -60,9 +61,10 @@ class DocumentJobs:
                 FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(document_id))).fetchone()
 
-    def enqueue(self, principal, *, document_id, module, idempotency_key):
-        if module not in SELECTED_MODULES:
-            raise ValueError("Module is not enabled")
+    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options()):
+        if module not in SELECTED_MODULES or not isinstance(options,Options):
+            raise ValueError("Module or options invalid")
+        options.validate(module)
         document_id, key = uid(document_id), uid(idempotency_key)
         with self.scoped(principal) as (conn,tenant,user):
             # Lock the account to serialize this user's queue admission. Per-user
@@ -71,10 +73,10 @@ class DocumentJobs:
                 WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active FOR UPDATE OF u""",(tenant,user)).fetchone()
             if not active:
                 raise ScopeError("Account is inactive")
-            prior=conn.execute("""SELECT id::text,document_id::text,module FROM cvcloud.jobs
+            prior=conn.execute("""SELECT id::text,document_id::text,module,alignment,correct_language,neutral_gender FROM cvcloud.jobs
                 WHERE tenant_id=%s AND owner_id=%s AND idempotency_key=%s""",(tenant,user,key)).fetchone()
             if prior:
-                if prior[1:] != (document_id,module):
+                if tuple(prior[1:]) != (document_id,module,options.alignment,options.correct_language,options.neutral_gender):
                     raise JobConflict("Idempotency key already used for a different request")
                 return prior[0]
             doc=conn.execute("SELECT id FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s",(tenant,user,document_id)).fetchone()
@@ -85,8 +87,8 @@ class DocumentJobs:
             if count >= 10:
                 raise JobConflict("Outstanding job limit reached")
             job_id=str(uuid4())
-            conn.execute("""INSERT INTO cvcloud.jobs (tenant_id,id,owner_id,document_id,module,idempotency_key)
-                VALUES (%s,%s,%s,%s,%s,%s)""",(tenant,job_id,user,document_id,module,key))
+            conn.execute("""INSERT INTO cvcloud.jobs (tenant_id,id,owner_id,document_id,module,idempotency_key,alignment,correct_language,neutral_gender)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(tenant,job_id,user,document_id,module,key,options.alignment,options.correct_language,options.neutral_gender))
             return job_id
 
     def job(self, principal, job_id):
@@ -94,3 +96,9 @@ class DocumentJobs:
             return conn.execute("""SELECT id::text,module,state,document_id::text
                 FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(job_id))).fetchone()
+
+    def options(self, principal, job_id):
+        with self.scoped(principal) as (conn,tenant,user):
+            row=conn.execute("""SELECT alignment,correct_language,neutral_gender FROM cvcloud.jobs
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""",(tenant,user,uid(job_id))).fetchone()
+            return Options(*row) if row else None

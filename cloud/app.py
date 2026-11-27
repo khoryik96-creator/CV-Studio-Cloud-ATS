@@ -5,7 +5,7 @@ from cloud.auth import Auth, TTL
 
 COOKIE = "__Host-cvcloud"
 
-def create_app(*, auth_store=None, public_origin=None):
+def create_app(*, auth_store=None, public_origin=None, cv_services=None):
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=32 * 1024 * 1024)
     @app.get("/healthz")
@@ -17,6 +17,8 @@ def create_app(*, auth_store=None, public_origin=None):
         # routes, production configuration, provisioning or migrations yet.
         return jsonify(status="not_ready", reason="production_storage_and_document_services_not_ready"), 503
     if auth_store is None and public_origin is None:
+        if cv_services is not None:
+            raise ValueError('CV services require authentication')
         return app
     if auth_store is None or not isinstance(public_origin, str):
         raise ValueError("Auth store and exact HTTPS origin must be configured together")
@@ -72,6 +74,9 @@ def create_app(*, auth_store=None, public_origin=None):
         response = jsonify(ok=True)
         response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="Strict")
         return response
+    if cv_services is not None:
+        from cloud.cv_api import register
+        register(app,auth,COOKIE,same_origin,*cv_services)
     return app
 
 if __name__ == "__main__":
