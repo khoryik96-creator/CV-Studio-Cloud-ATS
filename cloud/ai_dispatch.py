@@ -48,7 +48,8 @@ class BudgetedCompletion:
         self.policy,self.transport=policy,transport
 
     def __call__(self,stage,system,user,max_tokens):
-        if stage not in ("parse","blind") or not isinstance(system,str) or not isinstance(user,str):
+        stages={"cv_formatting":("parse",),"cv_blinding":("parse","blind"),"cv_scoring":("assess",)}
+        if stage not in stages.get(self.lease.module,()) or not isinstance(system,str) or not isinstance(user,str):
             raise DispatchError("invalid_completion_request")
         p=self.policy
         # Reserve full configured input ceiling (not a guessed tokenizer count)
