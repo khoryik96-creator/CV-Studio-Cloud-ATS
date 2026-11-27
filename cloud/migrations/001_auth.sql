@@ -27,26 +27,26 @@ CREATE TABLE cvcloud.sessions (
     FOREIGN KEY (tenant_id,user_id) REFERENCES cvcloud.users(tenant_id,id) ON DELETE CASCADE
 );
 CREATE FUNCTION cvcloud.bump_credential_version() RETURNS trigger LANGUAGE plpgsql
-SET search_path = pg_catalog AS $
+SET search_path = pg_catalog AS $body$
 BEGIN
     IF NEW.password_hash IS DISTINCT FROM OLD.password_hash OR NEW.active IS DISTINCT FROM OLD.active THEN
         NEW.credential_version := OLD.credential_version + 1;
     END IF;
     RETURN NEW;
 END;
-$;
+$body$;
 CREATE TRIGGER user_credential_change BEFORE UPDATE ON cvcloud.users
 FOR EACH ROW EXECUTE FUNCTION cvcloud.bump_credential_version();
 -- Tenant disable/enable must invalidate existing sessions as well.
 CREATE FUNCTION cvcloud.revoke_tenant_sessions() RETURNS trigger LANGUAGE plpgsql
-SET search_path = pg_catalog AS $
+SET search_path = pg_catalog AS $body$
 BEGIN
     IF NEW.active IS DISTINCT FROM OLD.active THEN
         DELETE FROM cvcloud.sessions WHERE tenant_id=NEW.id;
     END IF;
     RETURN NEW;
 END;
-$;
+$body$;
 CREATE TRIGGER tenant_status_change AFTER UPDATE OF active ON cvcloud.tenants
 FOR EACH ROW EXECUTE FUNCTION cvcloud.revoke_tenant_sessions();
 CREATE INDEX ON cvcloud.sessions (expires_at);

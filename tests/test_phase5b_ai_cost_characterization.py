@@ -394,7 +394,10 @@ class Phase5BAICostCharacterizationTests(unittest.TestCase):
 
         self.assertEqual(disabled.status_code, 200)
         self.assertEqual(enabled.status_code, 200)
-        self.assertEqual(prompts[0], app.BLIND_SYSTEM_PROMPT)
+        from cvstudio_layout_parity import GUARDRAILS
+        self.assertEqual(prompts[0], app.BLIND_SYSTEM_PROMPT + GUARDRAILS)
+        self.assertEqual(prompts[1], app.BLIND_SYSTEM_PROMPT + app.BLIND_CANDIDATE_GENDER_NEUTRALIZATION_INSTRUCTION + GUARDRAILS)
+        self.assertIn("STRUCTURE AND MASKING GUARDRAILS", prompts[0])
         self.assertNotIn("CANDIDATE GENDER NEUTRALIZATION", prompts[0])
         self.assertIn("CANDIDATE GENDER NEUTRALIZATION", prompts[1])
         self.assertIn('"the candidate will"', prompts[1])
