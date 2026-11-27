@@ -1,0 +1,2 @@
+# M1 worker supervision
+Independent cooperative heartbeat helper. Renews once before execution, then periodically; exposes a fail-closed check for processing boundaries, latches heartbeat errors, and uses an overall monotonic deadline. Does not cancel a blocking native parser, provider request or database call. Production worker process isolation, database timeouts, global and tenant admission, fencing at publication and cancellation/recovery still required. Never use the helper as a substitute for lease SQL or a hard process deadline. Not wired into an active job runner.
