@@ -33,7 +33,7 @@ class Principal:
 class AuthStore(Protocol):
     def consume_attempt(self, key: str, now: datetime) -> bool: ...
     def find_account(self, tenant: str, email: str) -> Account | None: ...
-    def create_session(self, digest: str, csrf: str, account: Account, expires: datetime) -> None: ...
+    def create_session(self, digest: str, csrf: str, account: Account, expires: datetime) -> bool: ...
     def get_session(self, digest: str, now: datetime) -> Principal | None: ...
     def delete_session(self, digest: str) -> None: ...
 
@@ -60,8 +60,10 @@ class Auth:
         now = self.clock()
         # Both limits are consumed before lookup, even for nonexistent accounts.
         source_ok = self.store.consume_attempt(digest("source:" + client_key), now)
+        if not source_ok:
+            return None  # do not create unlimited distinct account buckets from a blocked source
         account_ok = self.store.consume_attempt(digest("account:" + tenant + ":" + email), now)
-        if not source_ok or not account_ok:
+        if not account_ok:
             return None
         account = self.store.find_account(tenant, email)
         stored = account.password_hash if account and account.active and account.role in ROLES else self.dummy_hash
@@ -72,7 +74,8 @@ class Auth:
         if not valid or not account or not account.active or account.role not in ROLES:
             return None
         raw, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        self.store.create_session(digest(raw), csrf, account, now + TTL)
+        if not self.store.create_session(digest(raw), csrf, account, now + TTL):
+            return None  # account changed while password was being checked
         return raw
 
     def principal(self, raw):
@@ -83,7 +86,7 @@ class Auth:
 
     def logout(self, raw, csrf):
         p = self.principal(raw)
-        if not p or not isinstance(csrf, str) or not hmac.compare_digest(p.csrf.encode("utf-8"), csrf.encode("utf-8")):
+        if not p or not isinstance(csrf, str) or not TOKEN.fullmatch(csrf) or not hmac.compare_digest(p.csrf, csrf):
             return False
         self.store.delete_session(digest(raw))
         return True

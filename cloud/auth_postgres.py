@@ -29,9 +29,14 @@ class PostgresAuthStore:
 
     def create_session(self, digest, csrf, account, expires):
         with self.connect() as conn:
-            conn.execute("""INSERT INTO cvcloud.sessions (token_digest, csrf_token, tenant_id, user_id, expires_at)
-                            VALUES (%s,%s,%s,%s,%s)""",
-                         (digest, csrf, account.tenant_id, account.user_id, expires))
+            # The credential version is rechecked in the same transaction.
+            row = conn.execute("""INSERT INTO cvcloud.sessions (token_digest, csrf_token, tenant_id, user_id, expires_at, credential_version)
+                SELECT %s,%s,u.tenant_id,u.id,%s,u.credential_version
+                FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
+                WHERE u.tenant_id=%s AND u.id=%s AND u.password_hash=%s AND u.active AND t.active
+                RETURNING token_digest""",
+                (digest, csrf, expires, account.tenant_id, account.user_id, account.password_hash)).fetchone()
+        return row is not None
 
     def get_session(self, digest, now):
         with self.connect() as conn:
@@ -39,7 +44,7 @@ class PostgresAuthStore:
                 """SELECT u.tenant_id::text,u.id::text,u.role,s.csrf_token
                    FROM cvcloud.sessions s JOIN cvcloud.users u ON (u.tenant_id,u.id)=(s.tenant_id,s.user_id)
                    JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                   WHERE s.token_digest=%s AND s.expires_at>%s AND u.active AND t.active""",
+                   WHERE s.token_digest=%s AND s.expires_at>%s AND u.active AND t.active AND s.credential_version=u.credential_version""",
                 (digest, now)).fetchone()
         return Principal(*row) if row else None
 

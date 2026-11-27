@@ -27,3 +27,6 @@ Source: HyPlug main, ai/cvstudio/engine/cvstudio_docx_extract.py; ai/src/hiringp
 
 ### Word export compatibility
 Ported the targeted HyPlug OOXML repair for generated formatted/blinded exports: fixes paragraph/run property order, border order, row height attribute, and empty document properties. Keeps text, alignment values and media intact. The multipart summary-only path is intentionally unchanged; full schema validation in Word and visual comparison remain pending. Synthetic fixture checks repair and idempotence.
+
+### Review corrections
+Resolve list styles and inherited numbering, explicit numId=0, and numbering overrides. Conflicting known text-key levels no longer assign arbitrary nesting after blinding. Text-only keys still cannot distinguish identical paragraphs with different indentation; per-paragraph IDs are a future improvement.

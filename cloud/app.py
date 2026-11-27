@@ -40,6 +40,7 @@ def create_app(*, auth_store=None, public_origin=None):
     def login():
         if not same_origin():
             return jsonify(error="forbidden"), 403
+        request.max_content_length = 4096
         if not request.is_json:
             return jsonify(error="invalid_request"), 400
         body = request.get_json(silent=True)

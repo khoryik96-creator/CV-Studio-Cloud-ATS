@@ -18,14 +18,17 @@ class Store:
     def find_account(self,tenant,email):
         return self.accounts.get((tenant,email))
     def create_session(self,d,csrf,a,expires):
+        if not any(x == a for x in self.accounts.values()):
+            return False
         self.sessions[d] = (csrf,a,expires)
+        return True
     def get_session(self,d,now):
         row = self.sessions.get(d)
         if not row:
             return None
         csrf,a,expires = row
         current = next((x for x in self.accounts.values() if (x.tenant_id,x.user_id)==(a.tenant_id,a.user_id)),None)
-        if expires <= now or not current or not current.active:
+        if expires <= now or not current or not current.active or current.password_hash != a.password_hash:
             return None
         return Principal(current.tenant_id,current.user_id,current.role,csrf)
     def delete_session(self,d):
@@ -74,6 +77,22 @@ class TestAuth(unittest.TestCase):
         for _ in range(10):
             self.assertIsNone(auth.login("a","user@example.test","wrong","source"))
         self.assertIsNone(auth.login("a","user@example.test",PASSWORD,"source"))
+    def test_password_change_revokes_session(self):
+        auth=Auth(self.store)
+        raw=auth.login("a","user@example.test",PASSWORD,"test")
+        self.assertIsNotNone(auth.principal(raw))
+        self.store.accounts[("a","user@example.test")]=Account("a","user-a","recruiter",password_hash("another-synthetic-password"))
+        self.assertIsNone(auth.principal(raw))
+    def test_source_limit_stops_new_account_buckets(self):
+        auth=Auth(self.store)
+        for _ in range(10):
+            auth.login("a","user@example.test","wrong","source")
+        count=len(self.store.attempts)
+        auth.login("a","other@example.test","wrong","source")
+        self.assertEqual(len(self.store.attempts),count)
+    def test_large_login_body_rejected(self):
+        response=self.client.post("/api/auth/login",base_url=ORIGIN,headers={"Origin":ORIGIN},json={"tenant":"a","email":"user@example.test","password":"x"*5000})
+        self.assertEqual(response.status_code,413)
     def test_default_has_no_auth_routes(self):
         client=create_app().test_client()
         self.assertEqual(client.post("/api/auth/login").status_code,404)

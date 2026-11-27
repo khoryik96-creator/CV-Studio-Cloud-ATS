@@ -65,3 +65,23 @@ def test_ambiguous_duplicate_output_is_not_indented():
     def cv(*items):
         return {"work_experiences": [{"roles": [{"bullets": list(items)}]}]}
     assert engine.blind_levels([{"text":"second","level":1}], cv("first","second"), cv("same","same")) == []
+
+def test_inherited_word_list_style_and_explicit_cancel():
+    d = docx.Document()
+    p = d.add_paragraph("Parent", style="List Bullet")
+    p.paragraph_format.left_indent = docx.shared.Twips(360)
+    p = d.add_paragraph("Child", style="List Bullet")
+    p.paragraph_format.left_indent = docx.shared.Twips(720)
+    p = d.add_paragraph("Not a list", style="List Bullet")
+    num = p._p.get_or_add_pPr().get_or_add_numPr()
+    num.get_or_add_numId().val = 0
+    p = d.add_paragraph("New parent", style="List Bullet")
+    p.paragraph_format.left_indent = docx.shared.Twips(720)
+    buf = io.BytesIO()
+    d.save(buf)
+    assert engine._extract_docx_bullet_levels(buf.getvalue()) == [{"text":"child","level":1}]
+
+def test_conflicting_source_levels_are_not_assigned_to_blind_output():
+    before = {"work_experiences":[{"roles":[{"bullets":["same"]}]}]}
+    after = {"work_experiences":[{"roles":[{"bullets":["rewritten"]}]}]}
+    assert engine.blind_levels([{"text":"same","level":1},{"text":"same","level":2}], before, after) == []

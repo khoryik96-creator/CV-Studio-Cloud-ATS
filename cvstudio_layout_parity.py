@@ -43,15 +43,53 @@ def _extract_docx_bullet_levels(file_bytes):
         return out
     numbering = _list_level_indents(doc)
 
-    def indent_of(p, num_id, level):
-        own = p.xpath("./w:pPr/w:ind/@w:left") or p.xpath("./w:pPr/w:ind/@w:start")
-        if own:
+    styles = {s.get(qn("w:styleId")): s for s in doc.styles.element.iter(qn("w:style"))}
+    def properties(p, style_id):
+        direct = p.find(qn("w:pPr"))
+        if direct is not None:
+            yield direct
+        visited = set()
+        while style_id and style_id not in visited:
+            visited.add(style_id)
+            style = styles.get(style_id)
+            if style is None:
+                break
+            pp = style.find(qn("w:pPr"))
+            if pp is not None:
+                yield pp
+            parent = style.find(qn("w:basedOn"))
+            style_id = parent.get(qn("w:val")) if parent is not None else None
+
+    def value(props, group, names):
+        for pp in props:
+            element = pp.find(qn("w:" + group))
+            if element is None:
+                continue
+            for name in names:
+                if group == "numPr":
+                    child = element.find(qn("w:" + name))
+                    found = child.get(qn("w:val")) if child is not None else None
+                else:
+                    found = element.get(qn("w:" + name))
+                if found is not None:
+                    return found
+        return None
+
+    def indent_of(props, num_id, level):
+        own = value(props[:1], "ind", ("left", "start"))
+        if own is not None:
             try:
-                return int(own[0])
+                return int(own)
             except (TypeError, ValueError):
                 pass
         found = numbering.get((num_id, level))
-        return found if found is not None else 720 * (level + 1)
+        if found is not None:
+            return found
+        inherited = value(props[1:], "ind", ("left", "start"))
+        try:
+            return int(inherited) if inherited is not None else 720 * (level + 1)
+        except (TypeError, ValueError):
+            return 720 * (level + 1)
 
     # Read as an outline: a bullet deeper than the one before it is a level
     # below it; one as deep (within 150 twips, including manual 359 vs numbering 360) is a sibling; a shallower one goes
@@ -59,21 +97,23 @@ def _extract_docx_bullet_levels(file_bytes):
     # a heading, starts afresh.
     stack = []
     for p in doc.element.body.iter(qn("w:p")):
-        ilvl_vals = p.xpath("./w:pPr/w:numPr/w:ilvl/@w:val")
-        num_vals = p.xpath("./w:pPr/w:numPr/w:numId/@w:val")
-        style = (p.xpath("./w:pPr/w:pStyle/@w:val") or [""])[0].lower()
+        style_id = (p.xpath("./w:pPr/w:pStyle/@w:val") or [""])[0]
+        props = list(properties(p, style_id))
+        raw_level = value(props, "numPr", ("ilvl",))
+        num_id = value(props, "numPr", ("numId",))
+        style = style_id.lower()
         text = "".join(node.text or "" for node in p.iter(qn("w:t"))).strip()
-        if (not ilvl_vals and not num_vals) or style.startswith("heading"):
+        if num_id == "0" or (raw_level is None and num_id is None) or style.startswith("heading"):
             if text:
                 stack = []
             continue
         if not text:
             continue
         try:
-            raw = int(ilvl_vals[0]) if ilvl_vals else 0
+            raw = int(raw_level) if raw_level is not None else 0
         except (TypeError, ValueError):
             continue
-        ind = indent_of(p, num_vals[0] if num_vals else "", raw)
+        ind = indent_of(props, num_id or "", raw)
         while stack and ind <= stack[-1] + 150:
             stack.pop()
         level = len(stack)
@@ -120,9 +160,20 @@ def _list_level_indents(doc):
     for num in root.iter(qn("w:num")):
         ref = num.find(qn("w:abstractNumId"))
         aid = ref.get(qn("w:val")) if ref is not None else None
+        num_id = num.get(qn("w:numId"))
         for (a, level), ind in abstract.items():
             if a == aid:
-                out[(num.get(qn("w:numId")), level)] = ind
+                out[(num_id, level)] = ind
+        for override in num.findall(qn("w:lvlOverride")):
+            lvl = override.find(qn("w:lvl"))
+            if lvl is None:
+                continue
+            ind = left(lvl.find(qn("w:pPr")))
+            if ind is not None:
+                try:
+                    out[(num_id, int(override.get(qn("w:ilvl"))))] = ind
+                except (TypeError, ValueError):
+                    pass
     return out
 
 GUARDRAILS = (
@@ -239,10 +290,10 @@ def blind_levels(levels, prepared, blinded):
             k = _cv_bullet_match_key(e.get("text"))
             try:
                 depth = max(0, min(8, int(e.get("level") or 0)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if k:
-                by_key[k] = max(depth, by_key.get(k, 0))
+                by_key.setdefault(k, set()).add(depth)
         mapped = {}
         source_keys = set()
         for ex1, ex2 in zip(before, after):
@@ -252,7 +303,7 @@ def blind_levels(levels, prepared, blinded):
                         src_key, dst_key = _cv_bullet_match_key(src), _cv_bullet_match_key(dst)
                         source_keys.add(src_key)
                         if dst_key:
-                            mapped.setdefault(dst_key, set()).add(by_key.get(src_key, 0))
+                            mapped.setdefault(dst_key, set()).update(by_key.get(src_key, {0}))
         out = [e for e in original if _cv_bullet_match_key(e.get("text")) not in source_keys and _cv_bullet_match_key(e.get("text")) not in mapped]
         out.extend({"text": k, "level": next(iter(depths))} for k, depths in mapped.items() if len(depths) == 1 and next(iter(depths)) > 0)
         return out

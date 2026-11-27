@@ -7,3 +7,6 @@ The design uses tenant-specific accounts, scrypt password hashes, opaque session
 Before enabling real logins: provision a separate database and migration/runtime roles, add psycopg dependency and secure configuration, verify the migration and concurrent transactions against PostgreSQL, implement owner provisioning/password reset/session revocation, audit events, configure trusted reverse proxy client IP and upstream global limits, schedule expired-row cleanup, and validate HTTPS/cookies. The injected auth routes do not trust X-Forwarded-For. No user-supplied tenant ID can be used as document authorization: future repositories must enforce the principal's tenant and ownership on every query. RLS and cross-tenant document tests remain pending.
 
 No production deployment or legacy module deletion. Readiness remains false until secure document services exist.
+
+## Review fixes
+Bound login bodies to 4 KiB, stop account bucket creation after source throttling, validate CSRF token shape, recheck account/password at session creation and use credential version to invalidate sessions after password or active-status changes. Tenant disable/enable revokes existing sessions. Database concurrency tests remain required; do not enable production login.
