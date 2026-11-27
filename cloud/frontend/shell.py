@@ -15,6 +15,7 @@ ASSETS={
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
+    "history_cloud.js": FRONTEND/"history_cloud.js",
 }
 NAV=("Format","Batch","JDAnon","Company","Appraiser")
 TAGS=frozenset("div span button svg path circle ellipse h2 label input textarea select option p b strong small".split())
@@ -43,7 +44,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False):
+def render_shell(*,enable_batch=False,enable_history=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -118,6 +119,16 @@ def render_shell(*,enable_batch=False):
         bootstrap.addprevious(script)
         options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
         options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
+    if enable_history:
+        panel=html.fromstring("""<section class="card" id="cloudHistoryPanel" style="display:none"><div class="card-head"><h2>My processing history</h2><button type="button" class="sec" id="cloudHistoryClose">Close</button></div><div class="card-body"><p>Only your own records are shown. Uploaded files without a job are listed separately. Refresh to check current status; no job is resubmitted from this view.</p><div class="btn-row"><button type="button" class="sec" id="cloudHistoryJobs">CV jobs</button><button type="button" class="sec" id="cloudHistoryDocuments">Uploaded documents</button><button type="button" class="sec" id="cloudHistoryRefresh">Refresh</button><button type="button" class="sec" id="cloudHistoryNext" disabled>Older records</button></div><p role="status" aria-live="polite" id="cloudHistoryStatus"></p><div id="cloudHistoryList"></div></div></section>""")
+        content.insert(1,panel)
+        button=html.Element("button",id="cloudHistoryToggle",type="button")
+        button.set("class","sec")
+        button.set("style","display:none")
+        button.text="My history"
+        _one(shell,"cloudLogout").addprevious(button)
+        script=html.Element("script",src="/cloud-ui/assets/history_cloud.js",defer="defer")
+        shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
     return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
 
 def register_existing_ui(app, *, enable_batch=False):
@@ -127,7 +138,8 @@ def register_existing_ui(app, *, enable_batch=False):
     required={("/api/auth/login","POST"),("/api/auth/me","GET"),("/api/auth/logout","POST"),("/api/documents","POST"),("/api/jobs","POST"),("/api/jobs/<uuid:job_id>","GET"),("/api/jobs/<uuid:job_id>/download","GET")}
     if "cvcloud_auth" not in app.extensions or not required.issubset(rules):
         raise ValueError("Authenticated CV services required before mounting existing UI")
-    page=render_shell(enable_batch=enable_batch)
+    history_required={("/api/jobs","GET"),("/api/documents","GET"),("/api/jobs/<uuid:job_id>/preview","GET")}
+    page=render_shell(enable_batch=enable_batch,enable_history=history_required.issubset(rules))
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
     def index():

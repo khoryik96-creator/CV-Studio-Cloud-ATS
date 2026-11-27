@@ -3,13 +3,13 @@
 (()=>{
  const el=id=>document.getElementById(id);
  const rawFetch=window.fetch.bind(window);
- let binding=null,batchBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
+ let binding=null,batchBinding=null,historyBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
  const say=text=>{el("cloudMessage").textContent=text;};
  const login=el("cloudLogin"),logout=el("cloudLogout");
  const client=CVCloudClient.create({fetcher:rawFetch,uuid:()=>crypto.randomUUID()});
  function reset(){
    generation++;clearInterval(poll);clearTimeout(sessionTimer);poll=null;sessionTimer=null;
-   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;client.clear();
+   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;client.clear();
    el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;el("cloudLoginPanel").style.display="";logout.hidden=true;logout.style.display="none";
    login.reset();choose("paste");chooseView("Format");el("cloudAlignment").value="left";el("cloudLanguage").checked=false;el("cloudNeutral").checked=false;
    el("dzFileName").textContent="";el("charCount").textContent="0 characters";
@@ -31,7 +31,7 @@
    el("cloudRecover").style.display=view==="Format"?"":"none";
  }
  function attach(){
-   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();
+   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();if(historyBinding)historyBinding.dispose();historyBinding=null;
    const epoch=generation;
    const readOptions=module=>({alignment:el("cloudAlignment").value,correct_language:el("cloudLanguage").checked,neutral_gender:module==="cv_blinding"&&el("cloudNeutral").checked});
    const confirmReview=()=>window.confirm("Download for human review only? Do not distribute until checked.");
@@ -46,6 +46,9 @@
      readOptions,confirmReview,saveDocument});
    if(el("viewBatch")){
      batchBinding=CVCloudBatch.bind({document,client,readOptions,confirmReview,saveDocument});
+   }
+   if(el("cloudHistoryToggle")){
+     historyBinding=CVCloudHistory.bind({document,client,confirmReview,saveDocument,onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
    }
    chooseView("Format");
    el("cloudLoginPanel").hidden=true;el("cloudLoginPanel").style.display="none";el("cloudContent").style.display="block";logout.hidden=false;logout.style.display="";
@@ -73,6 +76,7 @@
  });
  logout.addEventListener("click",async()=>{
    if(closing)return;closing=true;logout.disabled=true;
+   if(historyBinding)historyBinding.dispose();historyBinding=null;
    try{await client.logout();reset();say("Signed out.");}
    catch{reset();say("Local view cleared; server sign-out was not confirmed. Close this browser session.");}
    finally{closing=false;logout.disabled=false;}

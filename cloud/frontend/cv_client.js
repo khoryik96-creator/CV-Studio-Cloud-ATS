@@ -95,6 +95,12 @@
       const response=await json("/api/jobs",{method:"POST",contentType:"application/json",body:JSON.stringify(payload),write:true,expected,signal});
       return id(response.job_id);
     }
+    async function history(kind,{before=null,limit=25,signal}={}){
+      const expected=active();
+      if(!["jobs","documents"].includes(kind)||!Number.isInteger(limit)||limit<1||limit>50)throw new CloudError("invalid_history");
+      const cursor=before===null?"":"&before="+id(before);
+      return json("/api/"+kind+"?limit="+limit+cursor,{expected,signal});
+    }
     async function status(jobId,{signal}={}){
       const expected=active(),job=id(jobId);
       const value=await json("/api/jobs/"+job,{expected,signal});
@@ -124,7 +130,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,history});
   }
   return Object.freeze({create,CloudError,options,source});
 });
