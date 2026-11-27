@@ -56,7 +56,14 @@ class TestEngine(unittest.TestCase):
             for edu in value["education"]:
                 edu["institution"]="University"
             return json.dumps(value)
-        result=process(SOURCE,complete=fake,blind=True)
+        # Surface fixed, content-free package-part categories only for diagnostics.
+        from unittest.mock import patch
+        from cloud.cv_engine import blind_identity_findings
+        def checked(raw,original):
+            self.assertEqual(blind_identity_findings(raw,original),())
+            verify_blind_identity(raw,original)
+        with patch("cloud.cv_engine.verify_blind_identity",side_effect=checked):
+            result=process(SOURCE,complete=fake,blind=True)
         self.assertTrue(result.requires_review)
         with zipfile.ZipFile(io.BytesIO(result.document)) as archive:
             xml=archive.read("word/document.xml").decode().casefold()
