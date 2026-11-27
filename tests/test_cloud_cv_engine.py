@@ -26,6 +26,22 @@ class TestEngine(unittest.TestCase):
             archive.writestr("word/_rels/document.xml.rels",'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="mailto:avery@example.invalid"/></Relationships>')
         with self.assertRaises(EngineError):
             verify_blind_identity(buf.getvalue(),PARSED)
+    def test_font_signature_is_not_phone_but_contact_fields_are(self):
+        ns="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        def document(part,xml):
+            buf=io.BytesIO()
+            with zipfile.ZipFile(buf,"w") as archive:
+                archive.writestr(part,xml)
+            return buf.getvalue()
+        font=document("word/fontTable.xml",f'<w:fonts xmlns:w="{ns}"><w:font w:name="Calibri"><w:sig w:usb0="00000000" w:csb1="00000000"/></w:font></w:fonts>')
+        verify_blind_identity(font,PARSED)
+        for part,xml in (
+            ("word/fontTable.xml",f'<w:fonts xmlns:w="{ns}"><w:font w:name="+60 10 000 0000"><w:sig w:usb0="00000000"/></w:font></w:fonts>'),
+            ("word/header1.xml",f'<w:hdr xmlns:w="{ns}"><w:p><w:r><w:t>+60 10 000 0000</w:t></w:r></w:p></w:hdr>'),
+            ("word/fontTable.xml",f'<w:fonts xmlns:w="{ns}"><w:font w:name="Calibri"><w:sig w:usb0="+60 10 000 0000"/></w:font></w:fonts>'),
+        ):
+            with self.assertRaises(EngineError):
+                verify_blind_identity(document(part,xml),PARSED)
     def test_existing_generic_label_is_not_identity_leak(self):
         buf=io.BytesIO()
         with zipfile.ZipFile(buf,"w") as archive:
