@@ -35,7 +35,7 @@ function stripLeadingBulletMarker(text) {
 }
 
 // A trusted server caller may select a fixed, vetted template. Desktop default is unchanged.
-const TEMPLATE = process.argv[4] ? path.resolve(process.argv[4]) : path.join(__dirname, 'template.docx');
+const TEMPLATE = typeof process !== 'undefined' && process.argv && process.argv[4] ? path.resolve(process.argv[4]) : path.join(__dirname, 'template.docx');
 if (!fs.existsSync(TEMPLATE)) {
   console.error('template.docx not found');
   process.exit(1);
