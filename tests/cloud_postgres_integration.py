@@ -49,6 +49,26 @@ class TestPostgres(unittest.TestCase):
         with self.connect() as conn:
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.documents").fetchone()[0],0)
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.jobs").fetchone()[0],0)
+    def test_fenced_worker_lifecycle(self):
+        from cloud.worker_leases import WorkerLeases, Lease
+        a,b=self.principals
+        doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
+        job=self.repo.enqueue(a,document_id=doc,module="cv_blinding",idempotency_key=str(uuid4()))
+        worker=WorkerLeases(self.repo)
+        self.assertIsNone(worker.claim(b))
+        lease=worker.claim(a)
+        self.assertEqual(lease.job_id,job)
+        self.assertIsNone(worker.claim(a))
+        self.assertFalse(worker.heartbeat(b,lease))
+        self.assertFalse(worker.finish(a,Lease(lease.job_id,lease.document_id,lease.module,str(uuid4())),"succeeded"))
+        self.assertTrue(worker.heartbeat(a,lease))
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.jobs SET lease_until=now()-interval '1 second' WHERE tenant_id=%s AND id=%s",(a.tenant_id,job))
+        self.assertFalse(worker.finish(a,lease,"succeeded"))
+        self.assertEqual(worker.expire(a),1)
+        self.assertEqual(self.repo.job(a,job)[2],"needs_review")
+        self.assertIsNone(worker.claim(a))
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
