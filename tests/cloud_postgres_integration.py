@@ -431,6 +431,63 @@ class TestPostgres(unittest.TestCase):
                 context.close()
                 browser.close()
 
+    def test_account_administration_scope_and_revocation(self):
+        from cloud.account_admin import AccountAdmin,AccountAdminError
+        from cloud.auth import Principal
+        a,b=self.principals
+        service=AccountAdmin(self.repo)
+        with self.assertRaises(AccountAdminError):
+            service.list_accounts(a)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        # Stale cached recruiter role cannot grant authority; the service reads actual role.
+        owner=Principal(a.tenant_id,a.user_id,"owner",a.csrf)
+        new=service.create(owner,email="  New@Example.TEST ",role="recruiter",password="fictional-password-123")
+        self.assertEqual(new.email,"new@example.test")
+        self.assertEqual(new.revision,1)
+        self.assertNotIn("fictional-password",repr(new))
+        with self.assertRaises(AccountAdminError):
+            service.create(owner,email=new.email,role="recruiter",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.create(owner,email="other@example.test",role="owner",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=b.user_id,expected_revision=1,action="suspend")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=a.user_id,expected_revision=2,action="suspend")
+        slug=self.ids[0][2]
+        raw=self.auth.login(slug,new.email,"fictional-password-123","account-fixture")
+        self.assertIsNotNone(self.auth.principal(raw))
+        promoted=service.change(owner,user_id=new.user_id,expected_revision=1,action="role_change",value="admin")
+        self.assertEqual(promoted.revision,2)
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"fictional-password-123","account-fixture")
+        admin=self.auth.principal(raw)
+        self.assertEqual(admin.role,"admin")
+        with self.assertRaises(AccountAdminError):
+            service.create(admin,email="no@example.test",role="admin",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=new.user_id,expected_revision=1,action="suspend")
+        reset=service.change(owner,user_id=new.user_id,expected_revision=2,action="password_reset",value="another-fictional-password")
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"another-fictional-password","account-fixture")
+        suspended=service.change(owner,user_id=new.user_id,expected_revision=reset.revision,action="suspend")
+        self.assertFalse(suspended.active)
+        self.assertIsNone(self.auth.principal(raw))
+        enabled=service.change(owner,user_id=new.user_id,expected_revision=suspended.revision,action="reactivate")
+        self.assertTrue(enabled.active)
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"another-fictional-password","account-fixture")
+        self.assertIsNotNone(self.auth.principal(raw))
+        service.change(owner,user_id=new.user_id,expected_revision=enabled.revision,action="revoke_sessions")
+        self.assertIsNone(self.auth.principal(raw))
+        self.assertEqual({x.user_id for x in service.list_accounts(owner)},{a.user_id,new.user_id})
+        with self.repo.scoped(owner) as (conn,tenant,user):
+            actions={x[0] for x in conn.execute("SELECT action FROM cvcloud.account_audit").fetchall()}
+            self.assertEqual(actions,{"create","role_change","password_reset","suspend","reactivate","revoke_sessions"})
+            self.assertEqual(conn.execute("DELETE FROM cvcloud.account_audit").rowcount,0)
+        with self.repo.scoped(b) as (conn,tenant,user):
+            self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.account_audit").fetchone()[0],0)
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
