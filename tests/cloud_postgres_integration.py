@@ -445,6 +445,22 @@ class TestPostgres(unittest.TestCase):
                 self.assertEqual(page.locator("#cvInput").input_value(),"")
                 self.assertEqual(page.evaluate("localStorage.length"),0)
                 self.assertEqual(page.evaluate("sessionStorage.length"),0)
+                page.locator('[name="tenant"]').fill(self.ids[0][2])
+                page.locator('[name="email"]').fill("synthetic@example.test")
+                page.locator('[name="password"]').fill("synthetic-password-123")
+                page.locator("#cloudLogin button").click()
+                expect(page.locator("#cloudHistoryToggle")).to_be_visible()
+                page.locator("#cloudHistoryToggle").click()
+                expect(page.locator("#cloudHistoryList .batch-file-item")).to_have_count(3)
+                with page.expect_download() as previous:
+                    page.locator("#cloudHistoryList button",has_text="Download DOCX").first.click()
+                self.assertTrue(previous.value.suggested_filename.endswith(".docx"))
+                page.locator("#cloudHistoryDocuments").click()
+                expect(page.locator("#cloudHistoryList .batch-file-item")).to_have_count(3)
+                page.locator("#cloudHistoryClose").click()
+                self.assertEqual(page.locator("#cloudHistoryList").inner_text(),"")
+                page.locator("#cloudLogout").click()
+                expect(page.locator("#cloudLoginPanel")).to_be_visible()
                 self.assertFalse(errors,errors)
             finally:
                 context.close()
@@ -475,6 +491,98 @@ class TestPostgres(unittest.TestCase):
             self.repo.history(a,kind="documents",before=other)
         with self.assertRaises(ScopeError):
             self.repo.history(b,kind="jobs",before=jobs[0])
+
+    def test_account_administration_scope_and_revocation(self):
+        from cloud.account_admin import AccountAdmin,AccountAdminError
+        from cloud.auth import Principal
+        a,b=self.principals
+        service=AccountAdmin(self.repo)
+        with self.assertRaises(AccountAdminError):
+            service.list_accounts(a)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        # Stale cached recruiter role cannot grant authority; the service reads actual role.
+        owner=Principal(a.tenant_id,a.user_id,"owner",a.csrf)
+        new=service.create(owner,email="  New@Example.TEST ",role="recruiter",password="fictional-password-123")
+        self.assertEqual(new.email,"new@example.test")
+        self.assertEqual(new.revision,1)
+        self.assertNotIn("fictional-password",repr(new))
+        with self.assertRaises(AccountAdminError):
+            service.create(owner,email=new.email,role="recruiter",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.create(owner,email="other@example.test",role="owner",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=b.user_id,expected_revision=1,action="suspend")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=a.user_id,expected_revision=2,action="suspend")
+        slug=self.ids[0][2]
+        raw=self.auth.login(slug,new.email,"fictional-password-123","account-fixture")
+        self.assertIsNotNone(self.auth.principal(raw))
+        promoted=service.change(owner,user_id=new.user_id,expected_revision=1,action="role_change",value="admin")
+        self.assertEqual(promoted.revision,2)
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"fictional-password-123","account-fixture")
+        admin=self.auth.principal(raw)
+        self.assertEqual(admin.role,"admin")
+        with self.assertRaises(AccountAdminError):
+            service.create(admin,email="no@example.test",role="admin",password="fictional-password-123")
+        with self.assertRaises(AccountAdminError):
+            service.change(owner,user_id=new.user_id,expected_revision=1,action="suspend")
+        reset=service.change(owner,user_id=new.user_id,expected_revision=2,action="password_reset",value="another-fictional-password")
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"another-fictional-password","account-fixture")
+        suspended=service.change(owner,user_id=new.user_id,expected_revision=reset.revision,action="suspend")
+        self.assertFalse(suspended.active)
+        self.assertIsNone(self.auth.principal(raw))
+        enabled=service.change(owner,user_id=new.user_id,expected_revision=suspended.revision,action="reactivate")
+        self.assertTrue(enabled.active)
+        self.assertIsNone(self.auth.principal(raw))
+        raw=self.auth.login(slug,new.email,"another-fictional-password","account-fixture")
+        self.assertIsNotNone(self.auth.principal(raw))
+        service.change(owner,user_id=new.user_id,expected_revision=enabled.revision,action="revoke_sessions")
+        self.assertIsNone(self.auth.principal(raw))
+        self.assertEqual({x.user_id for x in service.list_accounts(owner)},{a.user_id,new.user_id})
+        with self.repo.scoped(owner) as (conn,tenant,user):
+            actions={x[0] for x in conn.execute("SELECT action FROM cvcloud.account_audit").fetchall()}
+            self.assertEqual(actions,{"create","role_change","password_reset","suspend","reactivate","revoke_sessions"})
+            self.assertEqual(conn.execute("DELETE FROM cvcloud.account_audit").rowcount,0)
+        with self.repo.scoped(b) as (conn,tenant,user):
+            self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.account_audit").fetchone()[0],0)
+
+    def test_account_admin_http_boundary(self):
+        from cloud.account_admin import AccountAdmin
+        from cloud.app import create_app,COOKIE
+        a,b=self.principals
+        service=AccountAdmin(self.repo)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        raw=self.auth.login(self.ids[0][2],"synthetic@example.test","synthetic-password-123","account-http-fixture")
+        owner=self.auth.principal(raw)
+        target=service.create(owner,email="target@example.test",role="recruiter",password="fictional-password-123")
+        target_raw=self.auth.login(self.ids[0][2],target.email,"fictional-password-123","account-http-target")
+        origin="https://cv.example.test"
+        app=create_app(auth_store=PostgresAuthStore(self.connect),public_origin=origin,account_admin=service)
+        client=app.test_client()
+        other=app.test_client()
+        client.set_cookie(COOKIE,raw,domain="cv.example.test",secure=True)
+        other.set_cookie(COOKIE,self.tokens[1],domain="cv.example.test",secure=True)
+        url="/api/admin/accounts"
+        response=client.get(url,base_url=origin)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual({x["user_id"] for x in response.json["items"]},{owner.user_id,target.user_id})
+        self.assertEqual(other.get(url,base_url=origin).status_code,403)
+        headers={"Origin":origin,"X-CSRF-Token":owner.csrf}
+        action=url+"/"+target.user_id+"/actions"
+        payload={"action":"suspend","expected_revision":"1"}
+        self.assertEqual(client.post(action,base_url=origin,json=payload).status_code,403)
+        self.assertEqual(client.post(url+"/"+b.user_id+"/actions",base_url=origin,headers=headers,json=payload).status_code,403)
+        result=client.post(action,base_url=origin,headers=headers,json=payload)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json["account"]["revision"],"2")
+        self.assertFalse(result.json["account"]["active"])
+        self.assertIsNone(self.auth.principal(target_raw))
+        self.assertEqual(client.post(action,base_url=origin,headers=headers,json=payload).status_code,409)
+        self.assertEqual(client.post(action,base_url=origin,headers=headers,json={"action":"password_reset","expected_revision":"2","value":"fictional"}).status_code,400)
 
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]

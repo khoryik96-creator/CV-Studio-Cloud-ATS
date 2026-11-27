@@ -1,0 +1,15 @@
+"use strict";
+const assert=require("node:assert/strict"),{validate,actions}=require("../cloud/frontend/account_cloud.js");
+const user="11111111-1111-4111-8111-111111111111",target="22222222-2222-4222-8222-222222222222";
+const row={user_id:target,email:"fictional@example.test",role:"recruiter",active:true,revision:"9007199254740993"};
+assert.equal(validate({items:[{...row,password_hash:"hidden"}]})[0].password_hash,undefined);
+assert.equal(validate({items:[row]})[0].revision,row.revision);
+assert.equal(actions("owner",user,row).length,3);
+assert.equal(actions("admin",user,row).length,2);
+assert.deepEqual(actions("admin",user,{...row,role:"admin"}),[]);
+assert.deepEqual(actions("owner",target,row),[]);
+assert.deepEqual(actions("owner",user,{...row,role:"owner"}),[]);
+assert.deepEqual(actions("recruiter",user,row),[]);
+assert.throws(()=>validate({items:[row,row]}));
+assert.throws(()=>validate({items:[{...row,revision:1}]}));
+console.log("Account UI permission and response checks passed");

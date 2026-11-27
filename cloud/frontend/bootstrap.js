@@ -3,13 +3,13 @@
 (()=>{
  const el=id=>document.getElementById(id);
  const rawFetch=window.fetch.bind(window);
- let binding=null,batchBinding=null,providerBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
+ let binding=null,batchBinding=null,providerBinding=null,historyBinding=null,accountBinding=null,mode="paste",generation=0,poll=null,sessionTimer=null,closing=false;
  const say=text=>{el("cloudMessage").textContent=text;};
  const login=el("cloudLogin"),logout=el("cloudLogout");
  const client=CVCloudClient.create({fetcher:rawFetch,uuid:()=>crypto.randomUUID()});
  function reset(){
    generation++;clearInterval(poll);clearTimeout(sessionTimer);poll=null;sessionTimer=null;
-   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;if(providerBinding)providerBinding.dispose();providerBinding=null;client.clear();
+   if(binding)binding.dispose();binding=null;if(batchBinding)batchBinding.dispose();batchBinding=null;if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;client.clear();
    el("cloudContent").style.display="none";el("cloudLoginPanel").hidden=false;el("cloudLoginPanel").style.display="";logout.hidden=true;logout.style.display="none";
    login.reset();choose("paste");chooseView("Format");el("cloudAlignment").value="left";el("cloudLanguage").checked=false;el("cloudNeutral").checked=false;
    el("dzFileName").textContent="";el("charCount").textContent="0 characters";
@@ -30,8 +30,9 @@
    el("cloudRefresh").style.display=view==="Format"?"":"none";
    el("cloudRecover").style.display=view==="Format"?"":"none";
  }
- function attach(role){
-   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();if(providerBinding)providerBinding.dispose();providerBinding=null;
+ function attach(session){
+   const role=session.role;
+   if(binding)binding.dispose();if(batchBinding)batchBinding.dispose();if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;
    const epoch=generation;
    const readOptions=module=>({alignment:el("cloudAlignment").value,correct_language:el("cloudLanguage").checked,neutral_gender:module==="cv_blinding"&&el("cloudNeutral").checked});
    const confirmReview=()=>window.confirm("Download for human review only? Do not distribute until checked.");
@@ -50,6 +51,12 @@
    chooseView("Format");
    if(el("cloudProviderToggle")&&["owner","admin"].includes(role)){
      providerBinding=CVCloudProviderSettings.bind({document,client,confirmDisable:()=>window.confirm("Disable organisation AI processing? Existing in-flight requests cannot be recalled."),onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
+   }
+   if(el("cloudHistoryToggle")){
+     historyBinding=CVCloudHistory.bind({document,client,confirmReview,saveDocument,onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
+   }
+   if(el("cloudAccountsToggle")&&["owner","admin"].includes(role)&&session.userId){
+     accountBinding=CVCloudAccounts.bind({document,client,role,userId:session.userId,confirm:message=>window.confirm(message),onAuthLost:()=>{if(epoch===generation){reset();say("Session expired. Sign in again.");}}});
    }
    el("cloudLoginPanel").hidden=true;el("cloudLoginPanel").style.display="none";el("cloudContent").style.display="block";logout.hidden=false;logout.style.display="";
    let refreshing=false;
@@ -70,13 +77,13 @@
      const res=await rawFetch("/api/auth/login",{method:"POST",credentials:"same-origin",cache:"no-store",redirect:"error",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
      if(!res.ok)throw Error("login_failed");
      const session=await client.hydrate();
-     if(epoch===generation){login.reset();attach(session.role);say("");}
+     if(epoch===generation){login.reset();attach(session);say("");}
    }catch{if(epoch===generation)say("Sign-in failed or staging service unavailable.");}
    finally{login.elements.password.value="";button.disabled=false;}
  });
  logout.addEventListener("click",async()=>{
    if(closing)return;closing=true;logout.disabled=true;
-   if(providerBinding)providerBinding.dispose();providerBinding=null;
+   if(providerBinding)providerBinding.dispose();providerBinding=null;if(historyBinding)historyBinding.dispose();historyBinding=null;if(accountBinding)accountBinding.dispose();accountBinding=null;
    try{await client.logout();reset();say("Signed out.");}
    catch{reset();say("Local view cleared; server sign-out was not confirmed. Close this browser session.");}
    finally{closing=false;logout.disabled=false;}
