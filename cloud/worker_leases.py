@@ -22,21 +22,32 @@ class WorkerLeases:
     def __init__(self, repository):
         self.repository = repository
 
-    def claim(self, principal):
+    def claim(self, principal, *, cv_only=False):
+        if type(cv_only) is not bool:
+            raise ValueError("Invalid claim filter")
         token = str(uuid4())
         with self.repository.scoped(principal) as (conn, tenant, owner):
+            # Serialize claims for an owner across worker processes. Admission
+            # of a queued job also locks this user row.
+            active=conn.execute("""SELECT u.id FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
+                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active FOR UPDATE OF u""",(tenant,owner)).fetchone()
+            if not active:
+                return None
             row = conn.execute("""WITH next_job AS (
                 SELECT j.id FROM cvcloud.jobs j
                 JOIN cvcloud.users u ON (u.tenant_id,u.id)=(j.tenant_id,j.owner_id)
                 JOIN cvcloud.tenants t ON t.id=j.tenant_id
                 WHERE j.tenant_id=%s AND j.owner_id=%s AND j.state='queued' AND u.active AND t.active
+                AND (NOT %s OR j.module IN ('cv_formatting','cv_blinding'))
+                AND NOT EXISTS (SELECT 1 FROM cvcloud.jobs running WHERE running.tenant_id=j.tenant_id
+                    AND running.owner_id=j.owner_id AND running.state='running')
                 ORDER BY j.created_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED
             ) UPDATE cvcloud.jobs j
               SET state='running',lease_token=%s,lease_until=clock_timestamp()+make_interval(secs=>%s),
                   updated_at=clock_timestamp()
               FROM next_job n WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=n.id
               RETURNING j.id::text,j.document_id::text,j.module,j.lease_token::text""",
-                (tenant,owner,token,LEASE_SECONDS,tenant,owner)).fetchone()
+                (tenant,owner,cv_only,token,LEASE_SECONDS,tenant,owner)).fetchone()
         return Lease(*row) if row else None
 
     def heartbeat(self, principal, lease):
