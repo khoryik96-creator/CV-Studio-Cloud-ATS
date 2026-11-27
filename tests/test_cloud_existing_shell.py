@@ -40,3 +40,14 @@ class TestExistingShell(unittest.TestCase):
             response.close()
         self.assertEqual(client.get("/cloud-ui/assets/index.html").status_code,404)
         self.assertEqual(client.get("/vendor/cvstudio/ai-keys.js").status_code,404)
+
+    def test_optional_batch_original_controls(self):
+        root=html.fromstring(render_shell(enable_batch=True))
+        for key in ("viewBatch","batchFileInput","batchTabFormat","batchTabBlind","btnBatchRun","cloudBatchClear","batchFileList"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        self.assertIsNone(root.xpath(".//*[@id='tabBatch']")[0].get("disabled"))
+        self.assertIsNotNone(root.xpath(".//*[@id='batchFileInput']")[0].get("multiple"))
+        self.assertFalse(root.xpath(".//*[@id='batchAiQuickPanel' or @id='batchJAStatus' or @id='btnBatchDownload']"))
+        self.assertTrue(root.xpath(".//script[@src='/cloud-ui/assets/batch_cloud.js']"))
+        for node in root.iter():
+            self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
