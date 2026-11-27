@@ -24,19 +24,21 @@
     for(const key of ["btnFormat","btnBlind","btnDocx"]){
       if(nodes[key].hasAttribute("onclick")||nodes[key].onclick)throw new Error("Remove desktop handlers before binding");
     }
-    let job=null,intent=null,busy=false,disposed=false,seq=0;
+    let job=null,intent=null,busy=false,disposed=false,uploadUnconfirmed=false,seq=0;
+    const lifetime=new AbortController();
     function display(text){if(!disposed){nodes.stepText.textContent=text;nodes.outputBox.textContent=text;}}
     function controls(){
       if(disposed)return;
-      nodes.btnFormat.disabled=busy||!!intent;
-      nodes.btnBlind.disabled=busy||!!intent;
+      const pending=job&&["queued","running"].includes(job.state);
+      nodes.btnFormat.disabled=busy||!!intent||!!pending||uploadUnconfirmed;
+      nodes.btnBlind.disabled=nodes.btnFormat.disabled;
       nodes.btnDocx.disabled=busy||!job||!["succeeded","needs_review"].includes(job.state);
       nodes.btnDocx.textContent=job?.state==="needs_review"?"Download for review":"Download DOCX";
     }
     async function refresh(){
       if(!job||disposed)return;
       const current=++seq,jobId=job.job_id;
-      const next=await client.status(jobId);
+      const next=await client.status(jobId,{signal:lifetime.signal});
       if(disposed||current!==seq||job?.job_id!==jobId)return;
       job=next;
       nodes.blindBadge.style.display=next.module==="cv_blinding"&&["succeeded","needs_review"].includes(next.state)?"inline-flex":"none";
@@ -45,7 +47,7 @@
       return next;
     }
     async function submit(blind){
-      if(busy||intent||disposed)return;
+      if(busy||intent||disposed||uploadUnconfirmed||(job&&["queued","running"].includes(job.state)))return;
       busy=true;seq++;job=null;nodes.blindBadge.style.display="none";controls();
       try{
         const moduleName=blind?"cv_blinding":"cv_formatting";
@@ -54,23 +56,25 @@
         if(mode!=="upload"&&mode!=="paste")throw new Error("invalid_input_mode");
         const input=mode==="upload"?nodes.fileInput.files[0]:nodes.cvInput.value;
         display("Uploading source to secure processing queue…");
-        const documentId=await client.upload(input);
+        uploadUnconfirmed=true;
+        const documentId=await client.upload(input,{signal:lifetime.signal});
+        uploadUnconfirmed=false;
         if(disposed)return;
         intent=client.prepare(documentId,moduleName,opts);
-        const jobId=await client.submit(intent);
+        const jobId=await client.submit(intent,{signal:lifetime.signal});
         if(disposed)return;
         job={job_id:jobId,state:"queued",module:moduleName};
         intent=null;display(messages.queued);
         await refresh();
       }catch{
-        display(intent?"Job submission not confirmed. Do not create another job. Recover using the same request.":"Request not confirmed. Check document history before retrying.");
+        display(intent?"Job submission not confirmed. Do not create another job. Recover using the same request.":uploadUnconfirmed?"Upload not confirmed. Check document history before starting a new session.":job?"Job submitted; status unavailable. Refresh the job rather than submitting again.":"Request failed. Check input and options.");
       }finally{busy=false;controls();}
     }
     async function resumeSubmission(){
       if(!intent||busy||disposed)return;
       busy=true;controls();
       try{
-        const jobId=await client.submit(intent);
+        const jobId=await client.submit(intent,{signal:lifetime.signal});
         if(disposed)return;
         job={job_id:jobId,state:"queued",module:intent.module};
         intent=null;
@@ -83,9 +87,9 @@
       busy=true;controls();
       try{
         const review=job.state==="needs_review";
-        if(review&&!(await confirmReview()))return;
+        if(review&&(await confirmReview())!==true)return;
         if(disposed)return;
-        const result=await client.download(job.job_id,{review});
+        const result=await client.download(job.job_id,{review,signal:lifetime.signal});
         if(!disposed)await saveDocument(result);
       }catch{display("Download unavailable. Refresh the job status before retrying.");}
       finally{busy=false;controls();}
@@ -96,7 +100,7 @@
     nodes.btnDocx.addEventListener("click",download);
     controls();
     return Object.freeze({refresh,resumeSubmission,dispose(){
-      disposed=true;seq++;intent=null;job=null;
+      disposed=true;seq++;lifetime.abort();intent=null;job=null;
       nodes.btnFormat.removeEventListener("click",format);
       nodes.btnBlind.removeEventListener("click",blind);
       nodes.btnDocx.removeEventListener("click",download);

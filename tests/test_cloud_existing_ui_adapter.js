@@ -50,5 +50,9 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  await binding.resumeSubmission();assert.equal(submissionsCount,2);assert.equal(nodes.btnDocx.disabled,false);
  await nodes.btnDocx.listener();assert.equal(downloads,0);review=true;await nodes.btnDocx.listener();assert.equal(downloads,1);
  binding.dispose();assert.equal(nodes.cvInput.value,"");assert.equal(nodes.btnDocx.listener,null);
+ const pending=bind({...args,client:{...fakeClient,upload:async()=>{throw Error("uncertain upload");}}});
+ await nodes.btnFormat.listener();assert.equal(nodes.btnFormat.disabled,true);assert.match(nodes.outputBox.textContent,/Upload not confirmed/);pending.dispose();
+ const queued=bind({...args,client:{...fakeClient,submit:async()=>JOB,status:async()=>({job_id:JOB,module:"cv_formatting",state:"running"})}});
+ await nodes.btnFormat.listener();assert.equal(nodes.btnFormat.disabled,true);assert.equal(nodes.btnDocx.disabled,true);queued.dispose();
  console.log("Existing CV Studio cloud adapter fixture passed");
 })().catch(e=>{console.error(e);process.exitCode=1;});

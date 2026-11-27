@@ -67,6 +67,7 @@
       return value;
     }
     async function hydrate(){
+      clear();
       const expected=epoch;
       const value=await json("/api/auth/me",{expected});
       if(typeof value.csrf!=="string"||!value.csrf||value.csrf.length>256||!["owner","admin","recruiter"].includes(value.role))throw new CloudError("invalid_session");
