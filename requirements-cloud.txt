@@ -1,0 +1,3 @@
+# Cloud-only dependencies; desktop dependency set remains unchanged.
+cryptography>=46,<50
+psycopg[binary]==3.2.13

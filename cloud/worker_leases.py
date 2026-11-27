@@ -54,6 +54,18 @@ class WorkerLeases:
         if target not in (State.SUCCEEDED,State.FAILED,State.NEEDS_REVIEW):
             raise ValueError("Invalid terminal state")
         with self.repository.scoped(principal) as (conn,tenant,owner):
+            # Unknown provider billing cannot be represented as a clean success/failure.
+            # Reservation and completion both lock the job row before changing it.
+            active=conn.execute("""SELECT id FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
+                AND id=%s AND state='running' AND lease_token=%s AND lease_until>clock_timestamp()
+                FOR UPDATE""",(tenant,owner,uid(lease.job_id),uid(lease.token))).fetchone()
+            if not active:
+                return False
+            pending=conn.execute("""SELECT 1 FROM cvcloud.ai_reservations WHERE tenant_id=%s
+                AND owner_id=%s AND job_id=%s AND settled_at IS NULL LIMIT 1""",
+                (tenant,owner,uid(lease.job_id))).fetchone()
+            if pending and target is not State.NEEDS_REVIEW:
+                return False
             result=conn.execute("""UPDATE cvcloud.jobs SET state=%s,lease_token=NULL,lease_until=NULL,
                 updated_at=clock_timestamp() WHERE tenant_id=%s AND owner_id=%s AND id=%s
                 AND state='running' AND lease_token=%s AND lease_until>clock_timestamp()

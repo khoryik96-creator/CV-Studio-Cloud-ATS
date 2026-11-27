@@ -22,6 +22,8 @@ class Account:
     role: str
     password_hash: str
     active: bool = True
+    credential_version: int = 1
+    tenant_epoch: int = 1
 
 @dataclass(frozen=True)
 class Principal:
@@ -53,6 +55,15 @@ class Auth:
 
     def login(self, tenant, email, password, client_key):
         if not all(isinstance(v, str) for v in (tenant, email, password, client_key)):
+            return None
+        if len(tenant)>128 or len(email)>512 or len(password)>256 or len(client_key)>128:
+            return None
+        try:
+            for value in (tenant,email,password,client_key):
+                value.encode('utf-8',errors='strict')
+        except UnicodeError:
+            return None
+        if any(c.isspace() or ord(c)<32 or ord(c)==127 for c in email.strip()):
             return None
         tenant, email = tenant.strip().lower(), email.strip().casefold()
         if not TENANT.fullmatch(tenant) or not 3 <= len(email) <= 254 or "@" not in email or not 1 <= len(password) <= 256 or not client_key or len(client_key) > 128:

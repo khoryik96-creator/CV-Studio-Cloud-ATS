@@ -69,6 +69,61 @@ class TestPostgres(unittest.TestCase):
         self.assertEqual(self.repo.job(a,job)[2],"needs_review")
         self.assertIsNone(worker.claim(a))
 
+    def test_ai_budget_atomic_and_fenced(self):
+        from cloud.ai_budget import AIBudget,BudgetDenied
+        from cloud.worker_leases import WorkerLeases
+        a,b=self.principals
+        with psycopg.connect(DSN) as conn:
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,100)",(a.tenant_id,))
+        doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
+        self.repo.enqueue(a,document_id=doc,module="cv_formatting",idempotency_key=str(uuid4()))
+        worker=WorkerLeases(self.repo)
+        lease=worker.claim(a)
+        ledger=AIBudget(self.repo)
+        operation=str(uuid4())
+        args=dict(operation_id=operation,provider="deepseek",model="deepseek-chat",estimated_microusd=60)
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(b,lease,**args)
+        self.assertEqual(ledger.reserve(a,lease,**args).amount_microusd,60)
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(a,lease,**args)
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(a,lease,**dict(args,operation_id=str(uuid4())))
+        # Even a smaller operation cannot dispatch while billing is unresolved.
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(a,lease,**dict(args,operation_id=str(uuid4()),estimated_microusd=1))
+        self.assertFalse(worker.finish(a,lease,"succeeded"))
+        self.assertFalse(worker.finish(a,lease,"failed"))
+        self.assertTrue(ledger.settle(a,lease,operation_id=operation,actual_microusd=30))
+        self.assertFalse(ledger.settle(a,lease,operation_id=operation,actual_microusd=30))
+        with self.assertRaises(BudgetDenied):
+            ledger.settle(a,lease,operation_id=operation,actual_microusd=31)
+        second=str(uuid4())
+        ledger.reserve(a,lease,**dict(args,operation_id=second))
+        self.assertTrue(ledger.settle(a,lease,operation_id=second,actual_microusd=80))
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(a,lease,**dict(args,operation_id=str(uuid4())))
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.ai_budgets").fetchone()[0],0)
+        with psycopg.connect(DSN) as conn:
+            self.assertEqual(conn.execute("SELECT reserved_microusd,spent_microusd FROM cvcloud.ai_budgets WHERE tenant_id=%s",(a.tenant_id,)).fetchone(),(0,110))
+
+    def test_stale_password_check_cannot_create_session(self):
+        tenant,user,slug=self.ids[0]
+        store=PostgresAuthStore(self.connect)
+        checked=store.find_account(slug,"synthetic@example.test")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.tenants SET active=false WHERE id=%s",(tenant,))
+            conn.execute("UPDATE cvcloud.tenants SET active=true WHERE id=%s",(tenant,))
+        from datetime import timedelta
+        from cloud.auth import digest
+        self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
+        checked=store.find_account(slug,"synthetic@example.test")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET active=false WHERE tenant_id=%s AND id=%s",(tenant,user))
+            conn.execute("UPDATE cvcloud.users SET active=true WHERE tenant_id=%s AND id=%s",(tenant,user))
+        self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
