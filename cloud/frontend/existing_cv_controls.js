@@ -26,13 +26,20 @@
     }
     let job=null,intent=null,busy=false,disposed=false,uploadUnconfirmed=false,seq=0;
     const lifetime=new AbortController();
-    function display(text){if(!disposed){nodes.stepText.textContent=text;nodes.outputBox.textContent=text;}}
+    let previewButton=null,previewShown=null;
+    if(typeof client.preview==='function'&&typeof document.createElement==='function'&&nodes.btnDocx.parentNode){
+      previewButton=document.createElement('button');previewButton.type='button';previewButton.className='sec';previewButton.id='cloudPreview';previewButton.textContent='Preview output';
+      nodes.btnDocx.parentNode.insertBefore(previewButton,nodes.btnDocx);
+      previewButton.addEventListener('click',showPreview);
+    }
+    function display(text){if(!disposed){previewShown=null;nodes.stepText.textContent=text;nodes.outputBox.classList?.add('empty');nodes.outputBox.textContent=text;}}
     function controls(){
       if(disposed)return;
       const pending=job&&["queued","running"].includes(job.state);
       nodes.btnFormat.disabled=busy||!!intent||!!pending||uploadUnconfirmed;
       nodes.btnBlind.disabled=nodes.btnFormat.disabled;
       nodes.btnDocx.disabled=busy||!job||!["succeeded","needs_review"].includes(job.state);
+      if(previewButton)previewButton.disabled=nodes.btnDocx.disabled;
       nodes.btnDocx.textContent=job?.state==="needs_review"?"Download for review":"Download DOCX";
     }
     async function refresh(){
@@ -42,7 +49,7 @@
       if(disposed||current!==seq||job?.job_id!==jobId)return;
       job=next;
       nodes.blindBadge.style.display=next.module==="cv_blinding"&&["succeeded","needs_review"].includes(next.state)?"inline-flex":"none";
-      display(messages[next.state]);
+      if(previewShown!==next.job_id)display(messages[next.state]);
       controls();
       return next;
     }
@@ -82,6 +89,28 @@
       }catch{display("Submission still unconfirmed. No new request ID has been generated.");}
       finally{busy=false;controls();}
     }
+    async function showPreview(){
+      if(disposed||busy||!job||!["succeeded","needs_review"].includes(job.state))return;
+      const target=job.job_id,review=job.state==="needs_review";
+      busy=true;controls();
+      try{
+        if(review&&(await confirmReview())!==true)return;
+        if(disposed||job?.job_id!==target)return;
+        const result=await client.preview(target,{review,signal:lifetime.signal});
+        if(disposed||job?.job_id!==target)return;
+        // Render only literal text from the verified final Word output.
+        // Never render provider markup, raw source text, links or HTML.
+        nodes.outputBox.textContent="";
+        nodes.outputBox.classList?.remove("empty");
+        const heading=document.createElement("p");heading.textContent=result.requires_review?"Human review required — do not distribute":"Output text preview — Word layout may differ";
+        nodes.outputBox.appendChild(heading);
+        for(const line of result.paragraphs){
+          const p=document.createElement("p");p.textContent=line;nodes.outputBox.appendChild(p);
+        }
+        previewShown=target;
+      }catch{display("Preview unavailable. Refresh the job or download the Word document.");}
+      finally{busy=false;controls();}
+    }
     async function download(){
       if(disposed||busy||!job||!["succeeded","needs_review"].includes(job.state))return;
       busy=true;controls();
@@ -101,6 +130,7 @@
     controls();
     return Object.freeze({refresh,resumeSubmission,dispose(){
       disposed=true;seq++;lifetime.abort();intent=null;job=null;
+      if(previewButton){previewButton.removeEventListener('click',showPreview);previewButton.remove();}
       nodes.btnFormat.removeEventListener("click",format);
       nodes.btnBlind.removeEventListener("click",blind);
       nodes.btnDocx.removeEventListener("click",download);

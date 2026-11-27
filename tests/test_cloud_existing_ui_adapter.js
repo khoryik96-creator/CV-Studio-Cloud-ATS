@@ -17,6 +17,8 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
    if(path==="/api/documents"){assert.equal(init.headers["X-CSRF-Token"],"fictional-csrf");return response({document_id:DOC},201);}
    if(path==="/api/jobs"){if(rejectJob){rejectJob=false;throw Error("network");}return response({job_id:JOB},202);}
    if(path==="/api/jobs/"+JOB)return response({job_id:JOB,document_id:DOC,module:"cv_blinding",state:"needs_review"},forbid?401:200);
+   if(path==="/api/jobs/"+JOB+"/preview?review=1")return response({job_id:JOB,requires_review:true,paragraphs:["Fictional <script>"]});
+   if(path==="/api/jobs/"+JOB+"/preview")return response({},409);
    if(path==="/api/jobs/"+JOB+"/download?review=1")return new Response(new Blob(["fictional-word"]),{headers:{"Content-Type":MIME,"X-CV-Review-Required":"1"}});
    if(path==="/api/jobs/"+JOB+"/download")return response({},409);
    throw Error("unexpected request");
@@ -35,6 +37,8 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  const submissions=calls.filter(x=>x.path==="/api/jobs");
  assert.equal(submissions[0].init.body,submissions[1].init.body);
  assert.equal((await client.status(JOB)).state,"needs_review");
+ await assert.rejects(client.preview(JOB),/conflict_or_review_required/);
+ assert.equal((await client.preview(JOB,{review:true})).paragraphs[0],"Fictional <script>");
  await assert.rejects(client.download(JOB),/conflict_or_review_required/);
  assert.equal((await client.download(JOB,{review:true})).filename,"cv-review.docx");
  forbid=true;await assert.rejects(client.status(JOB),/authentication_required/);
