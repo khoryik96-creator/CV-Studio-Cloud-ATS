@@ -31,17 +31,20 @@
      notify();
    }
    async function start(module,options){
-     if(closed||busy||!rows.length||rows.some(x=>x.state!=="ready"))return;
+     if(closed||busy||refreshing||!rows.some(x=>x.state==="ready")||rows.some(x=>["upload_unconfirmed","preparation_failed","submit_unconfirmed"].includes(x.state)))return;
+     // Freeze settings across all rows at first admission, including unstarted rows.
+     for(const row of rows)if(!row.module){row.module=module;row.options={...options};}
      busy=true;notify();
      try{
        for(const row of rows){
          if(closed)break;
-         row.module=module;row.options={...options};row.state="uploading";notify();
+         if(row.state!=="ready")continue;
+         row.state="uploading";notify();
          try{
            row.doc=await client.upload(row.file,{signal:life.signal});
          }catch{if(!closed){row.state="upload_unconfirmed";notify();}break;}
          if(closed)break;
-         try{row.intent=client.prepare(row.doc,module,row.options);}
+         try{row.intent=client.prepare(row.doc,row.module,row.options);}
          catch{row.state="preparation_failed";notify();break;}
          await submit(row);
          // Never automatically repeat an uncertain upload or submission.
@@ -113,7 +116,8 @@
      }
      panel.style.display=rows.length||notice?"flex":"none";
      summary.textContent=notice||rows.filter(x=>TERMINAL.has(x.state)).length+" / "+rows.length+" finished";
-     run.disabled=busy||!rows.length||rows.some(x=>x.state!=="ready");
+     run.disabled=busy||!rows.some(x=>x.state==="ready")||rows.some(x=>["upload_unconfirmed","preparation_failed","submit_unconfirmed"].includes(x.state));
+     run.textContent=rows.some(x=>x.state!=="ready")?"Continue remaining files":"Start Processing";
      clear.disabled=busy||rows.some(x=>!TERMINAL.has(x.state)&&x.state!=="ready");
      input.disabled=busy||rows.length>0;
      format.disabled=blind.disabled=busy||rows.some(x=>x.state!=="ready");
