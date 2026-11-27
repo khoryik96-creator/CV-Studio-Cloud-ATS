@@ -18,8 +18,12 @@ Source: HyPlug main, ai/cvstudio/engine/cvstudio_docx_extract.py; ai/src/hiringp
 - DOCX nesting follows actual indentation and resets at headings; manual overrides precede numbering definitions.
 - Preserve one-for-one role/subheading bullet structure, title/date punctuation, separated employers; transfer nested bullet levels after masking in single and batch.
 - Renderer generate.js matches upstream by blob SHA at inspection time; left/justify behavior remains.
-- Pending: evaluate modified HyPlug template, normalizer/mask diffs, English-word dictionary mask repair, DOCX schema repair, all output routes and visual regression. Do not copy an ATS-specific dependency blindly.
+- Pending: evaluate modified HyPlug template, normalizer/mask diffs, English-word dictionary mask repair, all output routes and visual regression. Do not copy an ATS-specific dependency blindly.
 - Test synthetic DOCX indentation, blinding remap, ambiguity and cloud route absence. Do not use real CVs or live AI keys in tests.
 
 ## Local foundation smoke test
 `docker compose -f deploy/cloud-compose.yml up --build -d` builds the foundation only (no host ports). `docker compose -f deploy/cloud-compose.yml exec cloud python -m unittest cloud.test_foundation` runs the small route/scope suite. /readyz intentionally returns 503. This is not a functional hosted CV Studio.
+
+
+### Word export compatibility
+Ported the targeted HyPlug OOXML repair for generated formatted/blinded exports: fixes paragraph/run property order, border order, row height attribute, and empty document properties. Keeps text, alignment values and media intact. The multipart summary-only path is intentionally unchanged; full schema validation in Word and visual comparison remain pending. Synthetic fixture checks repair and idempotence.

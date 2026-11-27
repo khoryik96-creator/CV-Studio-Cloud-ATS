@@ -12339,6 +12339,10 @@ def generate_docx():
         with open(out_path, "rb") as handle:
             document_bytes = handle.read()
         _validate_generated_docx_bytes(document_bytes)
+        # HyPlug schema-order repair is confined to the trusted renderer's output.
+        from cvstudio_docx_repair import repair
+        document_bytes = repair(document_bytes)
+        _validate_generated_docx_bytes(document_bytes)
 
         if "format_review_applied" in body:
             # Read paragraphs with adjacent runs joined, preserving their actual
