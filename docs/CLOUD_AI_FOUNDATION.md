@@ -1,0 +1,7 @@
+# AI provider security and budget foundation
+
+No paid provider API is called. Adds integer micro-US-dollar accounting with explicit tenant-wide caps, atomic one-shot reservations before a future paid call and idempotent settlement. Unknown provider outcomes retain their reserved allowance; stale worker leases cannot clear it. Actual costs exceeding estimates are recorded and block future dispatch; the budget is a cumulative allowance, not a guarantee of the provider's final bill. Production must compute the conservative estimate from approved server-side model pricing, input/output token bounds and provider behavior; clients never choose the amount.
+
+Provider and model validation is syntactic, not a model catalog. No user-supplied URL routing or external request is implemented. Credential encryption is AES-256-GCM with random nonces and tenant/provider/key-version authenticated context, including support for decrypting old key versions. This is an internal primitive, not persistent credential management. No keys are stored in Git. Keyring injection, authenticated admin-only configuration, separate worker DB roles, actual provider adapters, secret storage/rotation/re-encryption, usage reconciliation tooling, periodic budget policy and operational alerts remain pending.
+
+The ledger relies on existing trusted principal context and fenced job leases. Test DB grants remain broad and are not acceptable for production. No automatic replay of uncertain paid requests. Readiness remains false and there is no deployment.
