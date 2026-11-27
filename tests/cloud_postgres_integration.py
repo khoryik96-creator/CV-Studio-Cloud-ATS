@@ -298,6 +298,55 @@ class TestPostgres(unittest.TestCase):
             self.assertIn('w:val="both"',xml)
             self.assertNotIn("9,000",xml)
 
+    def test_synthetic_staging_composition(self):
+        import io,tempfile,zipfile
+        from cloud.staging import compose_synthetic
+        a,b=self.principals
+        origin="https://cv.example.test"
+        fixtures=Path(__file__).with_name("fixtures")
+        source=(fixtures/"cloud_cv_source.txt").read_text(encoding="utf-8")
+        parsed=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
+        with tempfile.TemporaryDirectory() as folder:
+            env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
+                fixture_source=source,fixture_answer=parsed)
+            client,other=env.app.test_client(),env.app.test_client()
+            page=client.get("/cloud-ui",base_url=origin)
+            self.assertEqual(page.status_code,200)
+            self.assertIn(b'id="btnFormat"',page.data)
+            self.assertNotIn(b'id="tabJobLeads"',page.data)
+            self.assertEqual(client.get("/readyz",base_url=origin).status_code,503)
+            self.assertEqual(client.get("/api/auth/me",base_url=origin).status_code,401)
+            login=client.post("/api/auth/login",base_url=origin,headers={"Origin":origin},
+                json={"tenant":self.ids[0][2],"email":"synthetic@example.test","password":"synthetic-password-123"})
+            self.assertEqual(login.status_code,200)
+            session=client.get("/api/auth/me",base_url=origin).json
+            headers={"Origin":origin,"X-CSRF-Token":session["csrf"]}
+            self.assertEqual(client.post("/api/documents",base_url=origin,data=source.encode(),content_type="text/plain").status_code,403)
+            uploaded=client.post("/api/documents",base_url=origin,headers=headers,data=source.encode(),content_type="text/plain")
+            self.assertEqual(uploaded.status_code,201)
+            job=client.post("/api/jobs",base_url=origin,headers=headers,json={"document_id":uploaded.json["document_id"],
+                "module":"cv_formatting","idempotency_key":str(uuid4()),"alignment":"justify"})
+            self.assertEqual(job.status_code,202)
+            url="/api/jobs/"+job.json["job_id"]
+            self.assertEqual(client.get(url,base_url=origin).json["state"],"queued")
+            self.assertEqual(env.worker.tick(),("completed",))
+            result=client.get(url+"/download?review=1",base_url=origin)
+            self.assertEqual(result.status_code,200)
+            with zipfile.ZipFile(io.BytesIO(result.data)) as z:
+                xml=z.read("word/document.xml").decode()
+            self.assertIn("Disaster Recovery Automation",xml)
+            self.assertNotIn("9,000",xml)
+            login=other.post("/api/auth/login",base_url=origin,headers={"Origin":origin},
+                json={"tenant":self.ids[1][2],"email":"synthetic@example.test","password":"synthetic-password-123"})
+            self.assertEqual(login.status_code,200)
+            self.assertEqual(other.get(url,base_url=origin).status_code,404)
+            self.assertEqual(other.get(url+"/download?review=1",base_url=origin).status_code,404)
+            self.assertEqual(client.post("/api/auth/logout",base_url=origin,headers=headers).status_code,200)
+            self.assertEqual(client.get(url,base_url=origin).status_code,401)
+            self.assertEqual(env.worker.tick(),("idle",))
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
