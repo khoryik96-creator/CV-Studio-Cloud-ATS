@@ -62,3 +62,21 @@ class TestExistingShell(unittest.TestCase):
         self.assertTrue(root.xpath(".//*[@id='keyInput'][@disabled]"))
         for node in root.iter():
             self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
+
+    def test_optional_history_panel(self):
+        root=html.fromstring(render_shell(enable_batch=True,enable_history=True))
+        for key in ("cloudHistoryToggle","cloudHistoryPanel","cloudHistoryJobs","cloudHistoryDocuments","cloudHistoryRefresh","cloudHistoryNext","cloudHistoryList","batchFileInput"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        self.assertTrue(root.xpath(".//script[@src='/cloud-ui/assets/history_cloud.js']"))
+        self.assertFalse(html.fromstring(render_shell()).xpath(".//*[@id='cloudHistoryPanel']"))
+        for node in root.iter():
+            self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
+
+    def test_combined_cloud_panels(self):
+        root=html.fromstring(render_shell(enable_batch=True,enable_provider_settings=True,enable_history=True,enable_accounts=True))
+        for key in ("cloudAccountsPanel","cloudAccountsToggle","cloudAccountsClose","cloudAccountsRefresh","cloudAccountsList","cloudProviderPanel","cloudHistoryPanel","batchFileInput","btnFormat"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        self.assertTrue(root.xpath(".//script[@src='/cloud-ui/assets/account_cloud.js']"))
+        self.assertFalse(html.fromstring(render_shell()).xpath(".//*[@id='cloudAccountsPanel']"))
+        for node in root.iter():
+            self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))

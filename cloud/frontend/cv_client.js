@@ -72,7 +72,7 @@
       const value=await json("/api/auth/me",{expected});
       if(typeof value.csrf!=="string"||!value.csrf||value.csrf.length>256||!["owner","admin","recruiter"].includes(value.role))throw new CloudError("invalid_session");
       session={csrf:value.csrf,role:value.role};
-      return {role:session.role};
+      return {role:session.role,userId:typeof value.user_id==='string'&&UUID.test(value.user_id)?id(value.user_id):null};
     }
     const adminPath="/api/admin/ai-provider";
     function adminEpoch(){
@@ -90,6 +90,12 @@
     async function disableProvider(expected_revision,{signal}={}){
       const expected=adminEpoch();
       return json(adminPath+"/disable",{method:"POST",write:true,expected,signal,contentType:"application/json",body:JSON.stringify({expected_revision})});
+    }
+    async function accounts({signal}={}){
+      return json("/api/admin/accounts",{expected:adminEpoch(),signal});
+    }
+    async function changeAccount(userId,payload,{signal}={}){
+      return json("/api/admin/accounts/"+id(userId)+"/actions",{expected:adminEpoch(),method:"POST",write:true,signal,contentType:"application/json",body:JSON.stringify(payload)});
     }
     async function logout(){
       const expected=active();
@@ -111,6 +117,12 @@
       const payload={document_id:id(intent.document_id),module:intent.module,idempotency_key:id(intent.idempotency_key),...options(intent.module,{alignment:intent.alignment,correct_language:intent.correct_language,neutral_gender:intent.neutral_gender})};
       const response=await json("/api/jobs",{method:"POST",contentType:"application/json",body:JSON.stringify(payload),write:true,expected,signal});
       return id(response.job_id);
+    }
+    async function history(kind,{before=null,limit=25,signal}={}){
+      const expected=active();
+      if(!["jobs","documents"].includes(kind)||!Number.isInteger(limit)||limit<1||limit>50)throw new CloudError("invalid_history");
+      const cursor=before===null?"":"&before="+id(before);
+      return json("/api/"+kind+"?limit="+limit+cursor,{expected,signal});
     }
     async function status(jobId,{signal}={}){
       const expected=active(),job=id(jobId);
@@ -141,7 +153,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount});
   }
   return Object.freeze({create,CloudError,options,source});
 });

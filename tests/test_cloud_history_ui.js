@@ -1,0 +1,14 @@
+"use strict";
+const assert=require("node:assert/strict");
+const {validate}=require("../cloud/frontend/history_cloud.js");
+const d="11111111-1111-4111-8111-111111111111",j="22222222-2222-4222-8222-222222222222";
+const date="2026-11-27T00:00:00+00:00";
+const job={job_id:j,document_id:d,module:"cv_blinding",state:"needs_review",created_at:date,updated_at:date,output_available:true};
+const doc={document_id:d,media_type:"text/plain",byte_size:10,created_at:date,has_jobs:false};
+assert.equal(validate("jobs",{items:[{...job,secret:"fictional"}],next_cursor:j}).items[0].secret,undefined);
+assert.equal(validate("documents",{items:[doc],next_cursor:null}).items[0].has_jobs,false);
+for(const bad of [{...job,state:"queued"},{...job,module:"jobadder"},{...job,job_id:"bad"},{...job,created_at:"invalid"}])assert.throws(()=>validate("jobs",{items:[bad],next_cursor:null}));
+assert.throws(()=>validate("jobs",{items:[job,job],next_cursor:null}));
+assert.throws(()=>validate("jobs",{items:[job],next_cursor:d}));
+assert.throws(()=>validate("documents",{items:[{...doc,media_type:"text/html"}],next_cursor:null}));
+console.log("History contract validation passed");
