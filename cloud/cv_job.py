@@ -7,13 +7,13 @@ Output bytes are returned for a future atomic result-persistence service.
 from cloud.private_storage import StoredObject
 from cloud.file_extract import extract
 from cloud.ai_dispatch import BudgetedCompletion
-from cloud.cv_engine import process
+from cloud.cv_engine import process,Result
 
 class JobExecutionError(ValueError):
     pass
 
 def execute_cv_job(*,principal,lease,repository,storage,workers,ledger,policy,transport,
-                   alignment="left",correct_language=False,neutral_gender=False):
+                   alignment="left",correct_language=False,neutral_gender=False,enable_ocr=False):
     if lease.module not in ("cv_formatting","cv_blinding"):
         raise JobExecutionError("unsupported_job_module")
     def check():
@@ -28,7 +28,13 @@ def execute_cv_job(*,principal,lease,repository,storage,workers,ledger,policy,tr
         raise JobExecutionError("document_not_found")
     _,media_type,size,digest=row
     raw=storage.read_verified(principal.tenant_id,principal.user_id,lease.document_id,StoredObject(size,digest,media_type))
-    extracted=extract(raw,media_type)
+    if type(enable_ocr) is not bool:
+        raise JobExecutionError("invalid_ocr_option")
+    ocr=None
+    if enable_ocr:
+        from cloud.ocr import read_pages
+        ocr=lambda data,pages:read_pages(data,pages,keep_alive=check)
+    extracted=extract(raw,media_type,ocr=ocr)
     check()
     completion=BudgetedCompletion(ledger,principal,lease,policy,transport)
     def complete(stage,system,user,limit):
@@ -39,5 +45,7 @@ def execute_cv_job(*,principal,lease,repository,storage,workers,ledger,policy,tr
     result=process(extracted.text,complete=complete,blind=lease.module=="cv_blinding",alignment=alignment,
         correct_language=correct_language,neutral_gender=neutral_gender,source_levels=extracted.levels)
     check()
+    if extracted.ocr_used:
+        result=Result(result.document,True,result.warnings+("ocr_review_required",))
     # Do not mark succeeded before durable output publication and fenced commit.
     return result

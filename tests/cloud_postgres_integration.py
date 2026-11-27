@@ -124,6 +124,35 @@ class TestPostgres(unittest.TestCase):
             conn.execute("UPDATE cvcloud.users SET active=true WHERE tenant_id=%s AND id=%s",(tenant,user))
         self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
 
+    def test_private_output_publication(self):
+        import io,tempfile,zipfile
+        from cloud.job_outputs import JobOutputs,OutputError
+        from cloud.private_storage import PrivateStorage
+        from cloud.worker_leases import WorkerLeases,Lease
+        from cloud.cv_engine import Result
+        a,b=self.principals
+        doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
+        job=self.repo.enqueue(a,document_id=doc,module="cv_blinding",idempotency_key=str(uuid4()))
+        lease=WorkerLeases(self.repo).claim(a)
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,"w") as z:
+            for name in ("[Content_Types].xml","word/document.xml","_rels/.rels"):
+                z.writestr(name,"<fixture/>")
+        raw=buf.getvalue()
+        with tempfile.TemporaryDirectory() as folder:
+            outputs=JobOutputs(self.repo,PrivateStorage(folder))
+            with self.assertRaises(OutputError):
+                outputs.publish(b,lease,Result(raw,False,()))
+            with self.assertRaises(OutputError):
+                outputs.publish(a,Lease(lease.job_id,lease.document_id,lease.module,str(uuid4())),Result(raw,False,()))
+            outputs.publish(a,lease,Result(raw,False,()))
+            self.assertEqual(self.repo.job(a,job)[2],"needs_review")
+            self.assertEqual(outputs.download(a,job).document,raw)
+            self.assertTrue(outputs.download(a,job).requires_review)
+            self.assertIsNone(outputs.download(b,job))
+            with self.assertRaises(OutputError):
+                outputs.publish(a,lease,Result(raw,False,()))
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
