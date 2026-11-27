@@ -118,6 +118,16 @@
       if(id(value.job_id)!==job||!STATES.has(value.state)||!["cv_formatting","cv_blinding"].includes(value.module))throw new CloudError("invalid_job_state");
       return Object.freeze({job_id:job,module:value.module,state:value.state,document_id:id(value.document_id)});
     }
+    async function preview(jobId,{review=false,signal}={}){
+      const expected=active(),job=id(jobId);
+      if(typeof review!=="boolean")throw new CloudError("invalid_review_option");
+      const value=await json("/api/jobs/"+job+"/preview"+(review?"?review=1":""),{expected,signal});
+      if(id(value.job_id)!==job||typeof value.requires_review!=="boolean"||
+         (value.requires_review&&!review)||!Array.isArray(value.paragraphs)||
+         value.paragraphs.length>2000||value.paragraphs.some(p=>typeof p!=="string"||p.length>20000)||
+         value.paragraphs.reduce((n,p)=>n+p.length,0)>200000)throw new CloudError("invalid_preview");
+      return value;
+    }
     async function download(jobId,{review=false,signal}={}){
       const expected=active(),job=id(jobId);
       if(typeof review!=="boolean")throw new CloudError("invalid_review_option");
@@ -131,7 +141,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,download,providerStatus,configureProvider,disableProvider});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider});
   }
   return Object.freeze({create,CloudError,options,source});
 });

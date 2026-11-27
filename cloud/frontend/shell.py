@@ -15,10 +15,11 @@ ASSETS={
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
     "provider_settings.js": FRONTEND/"provider_settings.js",
+    "batch_cloud.js": FRONTEND/"batch_cloud.js",
 }
 NAV=("Format","Batch","JDAnon","Company","Appraiser")
 TAGS=frozenset("div span button svg path circle ellipse h2 label input textarea select option p b strong small".split())
-ATTR=frozenset("id class style type title aria-label aria-hidden aria-pressed role disabled accept value placeholder for checked hidden viewbox width height fill stroke stroke-width stroke-linecap stroke-linejoin d cx cy r rx ry".split())
+ATTR=frozenset("id class style type title aria-label aria-hidden aria-pressed role disabled accept value placeholder for checked hidden multiple viewbox width height fill stroke stroke-width stroke-linecap stroke-linejoin d cx cy r rx ry".split())
 
 def _one(source,key):
     matches=source.xpath(".//*[@id=$key]",key=key)
@@ -43,7 +44,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_provider_settings=False):
+def render_shell(*,enable_batch=False,enable_provider_settings=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -52,7 +53,7 @@ def render_shell(*,enable_provider_settings=False):
         if node.get("id") not in keep:
             nav.remove(node)
         else:
-            if node.get("id")!="tabFormat":
+            if node.get("id")!="tabFormat" and not (enable_batch and node.get("id")=="tabBatch"):
                 node.set("disabled","disabled")
                 node.set("title","Staging integration pending")
             if node.get("id")=="tabAppraiser":
@@ -85,6 +86,39 @@ def render_shell(*,enable_provider_settings=False):
     content=_one(shell,"cloudContent")
     content.insert(0,nav)
     content.append(view)
+    if enable_batch:
+        batch=deepcopy(_one(source,"viewBatch"))
+        for key in ("batchAiQuickPanel","batchSummaryToggle","btnBatchDownload","batchTotalCost","batchTimer","batchJAStatus","batchJAConnBadge"):
+            item=_one(batch,key)
+            if key=="batchSummaryToggle":
+                item=item.getparent()
+            item.getparent().remove(item)
+        for item in batch.xpath(".//*[@data-cv-open-ready]"):
+            item.getparent().remove(item)
+        for item in batch.xpath(".//button"):
+            if item.get("onclick")=="clearBatch()":
+                item.set("id","cloudBatchClear")
+            if item.get("id")=="btnBatchRun":
+                item.set("disabled","disabled")
+        file_input=_one(batch,"batchFileInput")
+        file_input.set("accept",".pdf,.docx,.txt")
+        file_input.set("aria-label","Batch source CV files")
+        drop=_one(batch,"batchDropZone")
+        labels=drop.xpath(".//span[@class='dz-label']")
+        subs=drop.xpath(".//span[@class='dz-sub']")
+        if len(labels)!=1 or len(subs)!=1:
+            raise ValueError("Batch drop-zone labels unavailable")
+        labels[0].text="Select up to 10 files (PDF, DOCX, TXT)"
+        subs[0].text="Click to browse or drop files; each has its own processing status"
+        _one(batch,"batchSummary").set("role","status")
+        _clean(batch)
+        batch.set("style","display:none")
+        content.append(batch)
+        script=html.Element("script",src="/cloud-ui/assets/batch_cloud.js",defer="defer")
+        bootstrap=shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
+        bootstrap.addprevious(script)
+        options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
+        options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
     if enable_provider_settings:
         # Reuse only the main AI card, not the desktop settings drawer or
         # integration cards. Model choices must come from the cloud server.
@@ -125,7 +159,7 @@ def render_shell(*,enable_provider_settings=False):
         shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
     return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
 
-def register_existing_ui(app):
+def register_existing_ui(app, *, enable_batch=False):
     # Only an explicitly configured staging app with real authenticated APIs
     # can mount this view. A health-only or auth-only app cannot mount it.
     rules={(r.rule,method) for r in app.url_map.iter_rules() for method in r.methods}
@@ -133,7 +167,7 @@ def register_existing_ui(app):
     if "cvcloud_auth" not in app.extensions or not required.issubset(rules):
         raise ValueError("Authenticated CV services required before mounting existing UI")
     admin_required={("/api/admin/ai-provider","GET"),("/api/admin/ai-provider","POST"),("/api/admin/ai-provider/disable","POST")}
-    page=render_shell(enable_provider_settings=admin_required.issubset(rules))
+    page=render_shell(enable_batch=enable_batch,enable_provider_settings=admin_required.issubset(rules))
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
     def index():
