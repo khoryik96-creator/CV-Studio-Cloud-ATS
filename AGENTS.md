@@ -2,6 +2,8 @@
 
 # CV Studio Codex Rules
 
+**Cloud fork priority:** follow [cloud roadmap #9](https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/issues/9) for current scope, coordination and release gates. Desktop release records below are historical and do not authorize deployment, redesign or activation of disabled modules. Keep the original frontend design and the five selected cloud modules. Archived desktop planning documents are linked from README.md; preserve the existing source-fidelity, security and regression rules.
+
 ## Multi-agent coordination
 
 Two or more agent sessions (Claude Code, Codex) may work on this repo at the
@@ -109,7 +111,7 @@ at a glance. The other account keeps its own existing branch naming.
 > `index.html` was sliced from ~18,241 lines into a 2,196-line thin shell plus 30
 > `vendor/cvstudio/*.js` modules + `app.css` (phases F1–F4, PRs #112–#134), each
 > behaviour-preserving and verified by a global-surface diff. F5 (delegated
-> handlers + strict CSP) is deliberately deferred — see `FRONTEND_ROADMAP.md §5`.
+> handlers + strict CSP) is deliberately deferred — see [historical frontend roadmap §5](https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/blob/5595bb61a42d9bd2af5fc39f403fc25b4fd6d8b4/FRONTEND_ROADMAP.md).
 > The scope description below is retained as historical context.
 
 ## Active scope: Phase 7A modular-monolith foundation
@@ -499,9 +501,9 @@ scope:
 
 Before changing code:
 
-1. Read `ROADMAP.md`.
-2. Read `PHASE_STATUS.md`.
-3. Read `IMPLEMENT.md`.
+1. Read [cloud roadmap #9](https://github.com/khoryik96-creator/CV-Studio-Cloud-ATS/issues/9).
+2. Check current PRs, exact-head CI and merged master.
+3. Consult the relevant cloud documentation and archived desktop plans only where needed.
 4. Read the current validation record in `docs/QA.md` and the module notes
    relevant to the requested work.
 5. Inspect the relevant existing storage paths and tests.
@@ -518,7 +520,7 @@ During work:
 2. Make the smallest safe change.
 3. Run targeted tests.
 4. Fix failures before proceeding.
-5. Update `PHASE_STATUS.md`.
+5. Update the cloud roadmap issue and PR with actual validation evidence.
 6. Commit a Git checkpoint when a milestone is stable.
 7. Continue automatically to the next milestone.
 

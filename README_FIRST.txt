@@ -15,8 +15,9 @@ WHERE TO PUT THESE FILES
 1. Extract the private v24.6.239 owner/source ZIP.
 2. Open the extracted cv_formatter folder.
 3. Copy every file from this starter pack into that cv_formatter folder.
-4. The final folder should contain app.py, index.html, AGENTS.md, ROADMAP.md,
-   PHASE_STATUS.md and IMPLEMENT.md together at the same level.
+4. The final folder should contain app.py, index.html, AGENTS.md and README.md.
+   Historical desktop planning files are available through README.md; cloud work
+   follows GitHub issue #9. These desktop instructions do not deploy the cloud app.
 
 IMPORTANT
 - This starter pack is for the private development workspace only.
