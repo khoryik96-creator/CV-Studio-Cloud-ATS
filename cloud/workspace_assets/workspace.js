@@ -1,10 +1,10 @@
 "use strict";
 const by=id=>document.getElementById(id);
-let session=null, generation=0, job=null, timer=null, moduleName="cv_formatting", busy=false;
+let session=null, generation=0, pollSequence=0, job=null, timer=null, moduleName="cv_formatting", busy=false;
 const TYPES={docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",pdf:"application/pdf",txt:"text/plain"};
 function message(text){by("message").textContent=text;}
 function reset(){
-  generation++;clearTimeout(timer);timer=null;session=null;job=null;busy=false;
+  generation++;pollSequence++;clearTimeout(timer);timer=null;session=null;job=null;busy=false;
   by("job-form").reset();by("login-form").reset();by("job-panel").hidden=true;
   by("download").hidden=true;by("submit-job").disabled=false;
   by("workspace").hidden=true;by("logout").hidden=true;by("login-panel").hidden=false;
@@ -36,10 +36,10 @@ function showSession(value){
 async function refresh(epoch=generation){
   if(!job||!session||epoch!==generation)return;
   clearTimeout(timer);timer=null;
-  const id=job;
+  const id=job, sequence=++pollSequence;
   try{
     const state=await json(await api("/api/jobs/"+encodeURIComponent(id),{},epoch));
-    if(epoch!==generation||id!==job)return;
+    if(epoch!==generation||id!==job||sequence!==pollSequence)return;
     if(!["queued","running","succeeded","failed","needs_review"].includes(state.state))throw new Error("invalid_state");
     by("job-state").textContent=state.state.replaceAll("_"," ");
     const review=state.state==="needs_review";
@@ -48,7 +48,7 @@ async function refresh(epoch=generation){
     by("download").textContent=review?"Download for human review":"Download Word document";
     by("download").dataset.review=review?"1":"0";
     if(state.state==="queued"||state.state==="running")timer=setTimeout(()=>refresh(epoch),3000);
-  }catch(e){if(epoch===generation&&e.message!=="stale")message("Status unavailable. Use Refresh status to try again.");}
+  }catch(e){if(epoch===generation&&sequence===pollSequence&&e.message!=="stale")message("Status unavailable. Use Refresh status to try again.");}
 }
 by("login-form").addEventListener("submit",async e=>{
   e.preventDefault();const epoch=generation,form=e.currentTarget,button=form.querySelector("button");
@@ -97,4 +97,4 @@ by("download").addEventListener("click",async()=>{
   }catch(e){if(epoch===generation&&e.message!=="stale")message("Download unavailable. The job may require review without a published file.");}
   finally{by("download").disabled=false;}
 });
-(async()=>{const epoch=generation;try{const response=await fetch("/api/auth/me",{credentials:"same-origin",cache:"no-store",redirect:"error"});if(response.ok&&epoch===generation)showSession(await response.json());}catch{message("Staging backend unavailable.");}})();
+(async()=>{const epoch=generation;try{const response=await fetch("/api/auth/me",{credentials:"same-origin",cache:"no-store",redirect:"error"});if(response.ok){const value=await response.json();if(epoch===generation&&!session)showSession(value);}}catch{message("Staging backend unavailable.");}})();

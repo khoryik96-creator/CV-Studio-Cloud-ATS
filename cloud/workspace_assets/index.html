@@ -13,7 +13,7 @@
 <section id="login-panel" class="login" aria-labelledby="login-title">
 <p class="eyebrow">Recruitment document workspace</p>
 <h1 id="login-title">Sign in</h1><p>Use your organisation's staging account.</p>
-<form id="login-form">
+<form id="login-form" method="post" action="/workspace">
 <label>Organisation<input name="tenant" autocomplete="organization" required maxlength="128"></label>
 <label>Email<input name="email" type="email" autocomplete="username" required maxlength="254"></label>
 <label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
@@ -25,7 +25,7 @@
 <div class="content">
 <p class="eyebrow">Document processing</p><h1 id="module-title">CV Formatting</h1><p id="module-description">Upload a CV and prepare a consistent Word document.</p>
 <div class="notice">Staging only. Use fictional documents. No external sharing.</div>
-<form id="job-form">
+<form id="job-form" method="post" action="/workspace">
 <label>Source document<input id="file" type="file" accept=".docx,.pdf,.txt" required></label>
 <label>Alignment<select id="alignment"><option value="left">Left</option><option value="justify">Justified</option></select></label>
 <label class="check"><input id="language" type="checkbox">Correct spelling and grammar</label>

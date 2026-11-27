@@ -6,12 +6,13 @@ from cloud.workspace import workspace
 
 class Markup(HTMLParser):
     def __init__(self):
-        super().__init__();self.ids=[];self.modules=[];self.scripts=[]
+        super().__init__();self.ids=[];self.modules=[];self.scripts=[];self.forms=[]
     def handle_starttag(self,tag,attrs):
         a=dict(attrs)
         if "id" in a:self.ids.append(a["id"])
         if "data-module" in a:self.modules.append(a["data-module"])
         if tag=="script":self.scripts.append(a.get("src"))
+        if tag=="form":self.forms.append((a.get("method"),a.get("action")))
 
 class TestWorkspace(unittest.TestCase):
     def setUp(self):
@@ -29,6 +30,7 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(len(m.ids),len(set(m.ids)))
         self.assertEqual(m.modules,["cv_formatting","cv_blinding"])
         self.assertEqual(m.scripts,["/workspace/assets/workspace.js"])
+        self.assertEqual(m.forms,[("post","/workspace"),("post","/workspace")])
         for path in ("/workspace/assets/workspace.css","/workspace/assets/workspace.js"):
             self.assertEqual(self.client.get(path).status_code,200)
     def test_no_arbitrary_asset_access(self):
