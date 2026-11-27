@@ -25,6 +25,8 @@ CREATE TABLE cvcloud.ai_reservations (
     CHECK ((settled_at IS NULL) = (actual_microusd IS NULL))
 );
 CREATE INDEX ON cvcloud.ai_reservations (tenant_id,job_id);
+-- A job cannot dispatch another AI step while the previous charge is unknown.
+CREATE UNIQUE INDEX ai_one_unsettled_per_job ON cvcloud.ai_reservations (tenant_id,job_id) WHERE settled_at IS NULL;
 ALTER TABLE cvcloud.ai_budgets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cvcloud.ai_budgets FORCE ROW LEVEL SECURITY;
 ALTER TABLE cvcloud.ai_reservations ENABLE ROW LEVEL SECURITY;

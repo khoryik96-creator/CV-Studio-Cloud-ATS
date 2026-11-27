@@ -70,6 +70,12 @@ def check(assets: Path, executable: str | None = None) -> None:
         # Every request is fulfilled locally. No external request is permitted.
         page.route("**/*", respond)
         page.goto("http://127.0.0.1:58382/", wait_until="networkidle")
+        # Protected assets can finish initialization after networkidle on slow runners.
+        # Wait for the real callable and fail with captured script errors if it never appears.
+        try:
+            page.wait_for_function("typeof window.toggleSettings === 'function'", timeout=15000)
+        except Exception as exc:
+            raise AssertionError(f"Protected settings initialization failed; page errors: {errors!r}") from exc
         page.evaluate("toggleSettings()")
         assert page.locator('[id^="routeSel_"]').count() == 14
         page.evaluate("showSettingsTab('api')")

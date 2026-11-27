@@ -93,6 +93,10 @@ class TestAuth(unittest.TestCase):
     def test_large_login_body_rejected(self):
         response=self.client.post("/api/auth/login",base_url=ORIGIN,headers={"Origin":ORIGIN},json={"tenant":"a","email":"user@example.test","password":"x"*5000})
         self.assertEqual(response.status_code,413)
+    def test_invalid_unicode_login_rejected(self):
+        auth=Auth(self.store)
+        for invalid in ("bad\\ud800@example.test","bad email@example.test","bad\\x00@example.test"):
+            self.assertIsNone(auth.login("a",invalid,PASSWORD,"source"))
     def test_default_has_no_auth_routes(self):
         client=create_app().test_client()
         self.assertEqual(client.post("/api/auth/login").status_code,404)

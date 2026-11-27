@@ -65,10 +65,10 @@ class AIBudget:
             result=conn.execute("""INSERT INTO cvcloud.ai_reservations
                 (tenant_id,owner_id,job_id,operation_id,lease_token,provider,model,reserved_microusd)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (tenant_id,operation_id) DO NOTHING RETURNING operation_id""",
+                ON CONFLICT DO NOTHING RETURNING operation_id""",
                 (tenant,owner,uid(lease.job_id),operation_id,uid(lease.token),provider,model,estimate)).fetchone()
             if not result:
-                raise BudgetDenied("AI operation was already reserved")
+                raise BudgetDenied("AI operation already reserved or previous charge unsettled")
             conn.execute("""UPDATE cvcloud.ai_budgets SET reserved_microusd=reserved_microusd+%s
                 WHERE tenant_id=%s""",(estimate,tenant))
         return Reservation(operation_id,estimate)

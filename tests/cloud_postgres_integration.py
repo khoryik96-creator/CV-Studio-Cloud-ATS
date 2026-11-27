@@ -89,6 +89,11 @@ class TestPostgres(unittest.TestCase):
             ledger.reserve(a,lease,**args)
         with self.assertRaises(BudgetDenied):
             ledger.reserve(a,lease,**dict(args,operation_id=str(uuid4())))
+        # Even a smaller operation cannot dispatch while billing is unresolved.
+        with self.assertRaises(BudgetDenied):
+            ledger.reserve(a,lease,**dict(args,operation_id=str(uuid4()),estimated_microusd=1))
+        self.assertFalse(worker.finish(a,lease,"succeeded"))
+        self.assertFalse(worker.finish(a,lease,"failed"))
         self.assertTrue(ledger.settle(a,lease,operation_id=operation,actual_microusd=30))
         self.assertFalse(ledger.settle(a,lease,operation_id=operation,actual_microusd=30))
         with self.assertRaises(BudgetDenied):
@@ -102,6 +107,22 @@ class TestPostgres(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.ai_budgets").fetchone()[0],0)
         with psycopg.connect(DSN) as conn:
             self.assertEqual(conn.execute("SELECT reserved_microusd,spent_microusd FROM cvcloud.ai_budgets WHERE tenant_id=%s",(a.tenant_id,)).fetchone(),(0,110))
+
+    def test_stale_password_check_cannot_create_session(self):
+        tenant,user,slug=self.ids[0]
+        store=PostgresAuthStore(self.connect)
+        checked=store.find_account(slug,"synthetic@example.test")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.tenants SET active=false WHERE id=%s",(tenant,))
+            conn.execute("UPDATE cvcloud.tenants SET active=true WHERE id=%s",(tenant,))
+        from datetime import timedelta
+        from cloud.auth import digest
+        self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
+        checked=store.find_account(slug,"synthetic@example.test")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET active=false WHERE tenant_id=%s AND id=%s",(tenant,user))
+            conn.execute("UPDATE cvcloud.users SET active=true WHERE tenant_id=%s AND id=%s",(tenant,user))
+        self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
 
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
