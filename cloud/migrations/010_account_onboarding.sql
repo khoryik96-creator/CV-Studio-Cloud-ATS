@@ -14,4 +14,6 @@ CREATE TABLE cvcloud.account_challenges (
     FOREIGN KEY (tenant_id,user_id) REFERENCES cvcloud.users(tenant_id,id)
 );
 CREATE INDEX ON cvcloud.account_challenges (expires_at);
+ALTER TABLE cvcloud.account_audit DROP CONSTRAINT account_audit_action_check;
+ALTER TABLE cvcloud.account_audit ADD CHECK (action IN ('create','role_change','suspend','reactivate','password_reset','revoke_sessions','invite_reissue'));
 COMMIT;

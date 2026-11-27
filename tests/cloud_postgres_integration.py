@@ -628,6 +628,24 @@ class TestPostgres(unittest.TestCase):
         expired=service.invite(owner,email="expired@example.test",role="recruiter")
         now[0]+=timedelta(hours=25)
         self.assertFalse(service.redeem(expired.token,"fictional-password-new"))
+        from cloud.app import create_app
+        expired_status=next(x for x in admin.list_accounts(owner) if x.user_id==expired.user_id)
+        with self.assertRaises(AccountAdminError):
+            admin.change(owner,user_id=expired.user_id,expected_revision=expired_status.revision,action="reactivate")
+        replacement=service.reissue_invitation(owner,user_id=expired.user_id,expected_revision=expired_status.revision)
+        with self.assertRaises(AccountAdminError):
+            service.reissue_invitation(owner,user_id=expired.user_id,expected_revision=expired_status.revision)
+        self.assertFalse(service.redeem(expired.token,"fictional-password-new"))
+        app=create_app(auth_store=PostgresAuthStore(self.connect),public_origin="https://cv.example.test",onboarding=service)
+        client=app.test_client()
+        headers={"Origin":"https://cv.example.test"}
+        payload={"token":replacement.token,"password":"fictional-password-new"}
+        response=client.post("/api/auth/redeem",base_url="https://cv.example.test",headers=headers,json=payload)
+        self.assertEqual(response.status_code,200)
+        self.assertNotIn("Set-Cookie",response.headers)
+        self.assertEqual(client.post("/api/auth/redeem",base_url="https://cv.example.test",headers=headers,json=payload).status_code,400)
+        self.assertIsNotNone(self.auth.login(self.ids[0][2],"expired@example.test","fictional-password-new","onboard-expired"))
+
 
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]

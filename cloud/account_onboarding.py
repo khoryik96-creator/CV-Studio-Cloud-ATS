@@ -58,6 +58,27 @@ class AccountOnboarding:
             self.admin._audit(conn,tenant,actor,user,"create")
             return result
 
+    def reissue_invitation(self,principal,*,user_id,expected_revision):
+        """Replace a pending invitation, including expired ones, never a suspension."""
+        user,expected=uid(user_id),_revision(expected_revision)
+        with self.admin._scope(principal) as (conn,tenant,actor,actor_role):
+            row=conn.execute("""SELECT role,active,credential_version FROM cvcloud.users
+                WHERE tenant_id=%s AND id=%s FOR UPDATE""",(tenant,user)).fetchone()
+            if user==actor or not row or row[1] or not _allowed(actor_role,row[0]):
+                raise AccountAdminError("account_admin_denied")
+            if row[2]!=expected:
+                raise AccountAdminError("account_conflict")
+            old=conn.execute("""SELECT purpose,credential_version FROM cvcloud.account_challenges
+                WHERE tenant_id=%s AND user_id=%s FOR UPDATE""",(tenant,user)).fetchone()
+            if not old or old[0]!="invite" or old[1]!=expected:
+                raise AccountAdminError("account_admin_denied")
+            version=conn.execute("""UPDATE cvcloud.users SET credential_version=credential_version+1
+                WHERE tenant_id=%s AND id=%s RETURNING credential_version""",(tenant,user)).fetchone()[0]
+            epoch=conn.execute("SELECT auth_epoch FROM cvcloud.tenants WHERE id=%s",(tenant,)).fetchone()[0]
+            result=self._issue(conn,tenant,user,"invite",version,epoch,self.clock()+timedelta(hours=24))
+            self.admin._audit(conn,tenant,actor,user,"invite_reissue")
+            return result
+
     def reset(self,principal,*,user_id,expected_revision):
         user,expected=uid(user_id),_revision(expected_revision)
         with self.admin._scope(principal) as (conn,tenant,actor,actor_role):
