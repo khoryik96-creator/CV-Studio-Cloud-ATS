@@ -8,3 +8,5 @@ Synthetic tests cover OCR merge ordering, missing pages and review flag; Postgre
 
 ## Review corrections
 Native PDFium page and bitmap objects are closed explicitly via contextlib.closing; their APIs do not expose context-manager methods in all supported versions. Successful CV job completion must use the output publication transaction, not the generic worker finish method. Publication checks account activity before writing and locks active tenant/user rows at the final commit. The earlier PR #6 blind renderer regression failed: the sweep now preserves XML string boundaries and normalizes only existing generic-label grammar before comparing. The original identity tests remain; full CI is required to establish whether this resolves the failure.
+
+Added native PDFium/Tesseract smoke fixture: a fictional raster-text PDF plus blank page. Linux CI explicitly installs Tesseract English and DejaVu font and requires the test to run; results pending.
