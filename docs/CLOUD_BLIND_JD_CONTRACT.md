@@ -1,0 +1,2 @@
+# M3 Blind JD
+Initial pure server contract based on legacy anonymizer intent. Explicit employer identifiers, technology-preservation list, bounded JSON structure, basic URL/email/phone and employer checks, required human review. False positives are possible; indirect identification, aliases, source requirement fidelity, paraphrase quality, scale generalization and proprietary technology still need comprehensive checks. No provider invocation, routes, persistence or UI.
