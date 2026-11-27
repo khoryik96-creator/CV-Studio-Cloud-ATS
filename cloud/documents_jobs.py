@@ -97,6 +97,49 @@ class DocumentJobs:
                 FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(job_id))).fetchone()
 
+    def history(self, principal, *, kind, limit=25, before=None):
+        """Bounded owner-only history; UUID cursor must belong to this listing."""
+        if kind not in ("jobs","documents") or type(limit) is not int or not 1<=limit<=50:
+            raise ValueError("Invalid history request")
+        cursor=uid(before) if before is not None else None
+        with self.scoped(principal) as (conn,tenant,owner):
+            if not conn.execute("""SELECT 1 FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
+                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active
+                FOR SHARE OF u,t""",(tenant,owner)).fetchone():
+                raise ScopeError("Account unavailable")
+            # Only the two static table/query definitions below can be selected.
+            if kind=="jobs":
+                table="cvcloud.jobs"
+                where=" AND module IN ('cv_formatting','cv_blinding')"
+                fields="""id::text,document_id::text,module,state,created_at,updated_at,
+                    EXISTS (SELECT 1 FROM cvcloud.job_outputs o
+                    WHERE o.tenant_id=jobs.tenant_id AND o.owner_id=jobs.owner_id AND o.job_id=jobs.id)"""
+            else:
+                table="cvcloud.documents"
+                where=""
+                fields="""id::text,media_type,byte_size,created_at,
+                    EXISTS (SELECT 1 FROM cvcloud.jobs j WHERE j.tenant_id=documents.tenant_id
+                    AND j.owner_id=documents.owner_id AND j.document_id=documents.id)"""
+            params=(tenant,owner)
+            clause=" WHERE tenant_id=%s AND owner_id=%s"+where
+            if cursor is not None:
+                prior=conn.execute("SELECT created_at,id FROM "+table+clause+" AND id=%s",(*params,cursor)).fetchone()
+                if not prior:
+                    raise ScopeError("History cursor unavailable")
+                clause+=" AND (created_at,id)<(%s,%s)"
+                params=(*params,*prior)
+            rows=conn.execute("SELECT "+fields+" FROM "+table+clause+
+                " ORDER BY created_at DESC,id DESC LIMIT %s",(*params,limit+1)).fetchall()
+            more=len(rows)>limit
+            rows=rows[:limit]
+            if kind=="jobs":
+                items=[dict(job_id=j,document_id=d,module=m,state=s,created_at=c.isoformat(),updated_at=u.isoformat(),
+                    output_available=bool(o) and s in ("succeeded","needs_review")) for j,d,m,s,c,u,o in rows]
+            else:
+                items=[dict(document_id=d,media_type=m,byte_size=n,created_at=c.isoformat(),has_jobs=bool(j))
+                    for d,m,n,c,j in rows]
+            return {"items":items,"next_cursor":rows[-1][0] if more else None}
+
     def options(self, principal, job_id):
         with self.scoped(principal) as (conn,tenant,user):
             row=conn.execute("""SELECT alignment,correct_language,neutral_gender FROM cvcloud.jobs
