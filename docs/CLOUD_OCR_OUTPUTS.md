@@ -1,0 +1,12 @@
+# OCR and immutable result publication
+
+Opt-in local PDF OCR is wired into the internal extraction/job adapter. Missing text-layer pages are individually rendered by PDFium and read with Tesseract English, preserving page order and requiring every selected page to be readable or visually blank. Bounded page count, raster dimensions, semaphore and time checks; OCR output is marked for human review. The PDFium native render is not preemptible by Python's clock: enforce outer process/container time and memory limits before production. Text-bearing pages can still contain images with extra text; mixed-page completeness needs review. No OCR for standalone images or Word embedded images yet.
+
+Job output is stored under a fresh opaque UUID with digest verification before a lease-fenced PostgreSQL transaction publishes metadata and final state. Blinded or fidelity/OCR flagged documents remain needs_review; no automatic external sharing. A result can be read only using owner/tenant-scoped metadata and active account checks, and returns a review flag. Unknown AI billing prevents publication. A crash or stale lease may leave an orphan file; do not delete on uncertain commit, implement grace-period reconciliation and retention. No HTTP endpoints or public object URLs are enabled. Storage ACLs, quotas, authorization revocation timing, scheduler, actual native OCR tests and secure review/download UI remain production blockers.
+
+Synthetic tests cover OCR merge ordering, missing pages and review flag; PostgreSQL integration covers immutable output, owner isolation and stale leases. No real candidate data, AI calls or production deployment.
+
+## Review corrections
+Native PDFium page and bitmap objects are closed explicitly via contextlib.closing; their APIs do not expose context-manager methods in all supported versions. Successful CV job completion must use the output publication transaction, not the generic worker finish method. Publication checks account activity before writing and locks active tenant/user rows at the final commit. The earlier PR #6 blind renderer regression failed: the sweep now preserves XML string boundaries and normalizes only existing generic-label grammar before comparing. The original identity tests remain; full CI is required to establish whether this resolves the failure.
+
+Added native PDFium/Tesseract smoke fixture: a fictional raster-text PDF plus blank page. Linux CI explicitly installs Tesseract English and DejaVu font and requires the test to run; results pending.

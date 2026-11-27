@@ -124,6 +124,97 @@ class TestPostgres(unittest.TestCase):
             conn.execute("UPDATE cvcloud.users SET active=true WHERE tenant_id=%s AND id=%s",(tenant,user))
         self.assertFalse(store.create_session(digest("old-session"),"synthetic",checked,datetime.now(timezone.utc)+timedelta(hours=1)))
 
+    def test_private_output_publication(self):
+        import io,tempfile,zipfile
+        from cloud.job_outputs import JobOutputs,OutputError
+        from cloud.private_storage import PrivateStorage
+        from cloud.worker_leases import WorkerLeases,Lease
+        from cloud.cv_engine import Result
+        a,b=self.principals
+        doc=self.repo.register_document(a,media_type="text/plain",byte_size=10,sha256="a"*64)
+        job=self.repo.enqueue(a,document_id=doc,module="cv_blinding",idempotency_key=str(uuid4()))
+        workers=WorkerLeases(self.repo)
+        lease=workers.claim(a)
+        self.assertFalse(workers.finish(a,lease,"succeeded"))
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,"w") as z:
+            for name in ("[Content_Types].xml","word/document.xml","_rels/.rels"):
+                z.writestr(name,"<fixture/>")
+        raw=buf.getvalue()
+        with tempfile.TemporaryDirectory() as folder:
+            outputs=JobOutputs(self.repo,PrivateStorage(folder))
+            with self.assertRaises(OutputError):
+                outputs.publish(b,lease,Result(raw,False,()))
+            with self.assertRaises(OutputError):
+                outputs.publish(a,Lease(lease.job_id,lease.document_id,lease.module,str(uuid4())),Result(raw,False,()))
+            outputs.publish(a,lease,Result(raw,False,()))
+            self.assertEqual(self.repo.job(a,job)[2],"needs_review")
+            self.assertEqual(outputs.download(a,job).document,raw)
+            self.assertTrue(outputs.download(a,job).requires_review)
+            self.assertIsNone(outputs.download(b,job))
+            with self.assertRaises(OutputError):
+                outputs.publish(a,lease,Result(raw,False,()))
+
+    def test_authenticated_cv_vertical_slice(self):
+        import io,json,tempfile,zipfile
+        from cloud.app import create_app,COOKIE
+        from cloud.private_storage import PrivateStorage
+        from cloud.upload_service import UploadService
+        from cloud.job_outputs import JobOutputs
+        from cloud.worker_leases import WorkerLeases
+        from cloud.ai_budget import AIBudget
+        from cloud.ai_dispatch import Completion,ModelPolicy
+        from cloud.cv_runner import run_claimed
+        a,b=self.principals
+        origin="https://cv.example.test"
+        fixtures=Path(__file__).with_name("fixtures")
+        source=(fixtures/"cloud_cv_source.txt").read_bytes()
+        parsed=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8")
+        with psycopg.connect(DSN) as conn:
+            conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
+        with tempfile.TemporaryDirectory() as folder:
+            storage=PrivateStorage(folder)
+            outputs=JobOutputs(self.repo,storage)
+            uploads=UploadService(self.repo,storage)
+            app=create_app(auth_store=PostgresAuthStore(self.connect),public_origin=origin,cv_services=(uploads,self.repo,outputs))
+            client,other=app.test_client(),app.test_client()
+            client.set_cookie(COOKIE,self.tokens[0],domain="cv.example.test",secure=True)
+            other.set_cookie(COOKIE,self.tokens[1],domain="cv.example.test",secure=True)
+            headers={"Origin":origin,"X-CSRF-Token":a.csrf}
+            upload=client.post("/api/documents",base_url=origin,headers=headers,data=source,content_type="text/plain")
+            self.assertEqual(upload.status_code,201)
+            doc=upload.json["document_id"]
+            key=str(uuid4())
+            body={"document_id":doc,"module":"cv_formatting","idempotency_key":key,"alignment":"justify"}
+            queued=client.post("/api/jobs",base_url=origin,headers=headers,json=body)
+            self.assertEqual(queued.status_code,202)
+            job=queued.json["job_id"]
+            self.assertEqual(client.post("/api/jobs",base_url=origin,headers=headers,json=body).json["job_id"],job)
+            self.assertEqual(client.post("/api/jobs",base_url=origin,headers=headers,json=dict(body,alignment="left")).status_code,409)
+            self.assertEqual(other.get("/api/jobs/"+job,base_url=origin).status_code,404)
+            self.assertEqual(other.post("/api/jobs",base_url=origin,headers={"Origin":origin,"X-CSRF-Token":b.csrf},json=body).status_code,404)
+            workers=WorkerLeases(self.repo)
+            lease=workers.claim(a)
+            calls=[]
+            def fake(provider,model,system,user,limit):
+                calls.append(1)
+                self.assertNotIn("9,000",user)
+                return Completion(parsed,100,100)
+            policy=ModelPolicy("deepseek","synthetic-model",1000000,1000000,100000,1000)
+            self.assertTrue(run_claimed(principal=a,lease=lease,repository=self.repo,storage=storage,workers=workers,
+                ledger=AIBudget(self.repo),policy=policy,transport=fake,outputs=outputs))
+            self.assertEqual(calls,[1])
+            status=client.get("/api/jobs/"+job,base_url=origin).json["state"]
+            self.assertIn(status,("succeeded","needs_review"))
+            download=client.get("/api/jobs/"+job+"/download?review=1",base_url=origin)
+            self.assertEqual(download.status_code,200)
+            self.assertEqual(other.get("/api/jobs/"+job+"/download?review=1",base_url=origin).status_code,404)
+            with zipfile.ZipFile(io.BytesIO(download.data)) as z:
+                xml=z.read("word/document.xml").decode()
+            self.assertIn("Disaster Recovery Automation",xml)
+            self.assertIn('w:val="both"',xml)
+            self.assertNotIn("9,000",xml)
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
