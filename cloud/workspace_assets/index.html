@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CV Studio Cloud | Workspace</title>
+<link rel="stylesheet" href="/workspace/assets/workspace.css">
+<script src="/workspace/assets/workspace.js" defer></script>
+</head>
+<body>
+<header class="top"><div><strong>CV Studio</strong><span class="tag">CLOUD · STAGING</span></div><button id="logout" type="button" hidden>Sign out</button></header>
+<main>
+<section id="login-panel" class="login" aria-labelledby="login-title">
+<p class="eyebrow">Recruitment document workspace</p>
+<h1 id="login-title">Sign in</h1><p>Use your organisation's staging account.</p>
+<form id="login-form">
+<label>Organisation<input name="tenant" autocomplete="organization" required maxlength="128"></label>
+<label>Email<input name="email" type="email" autocomplete="username" required maxlength="254"></label>
+<label>Password<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+<button class="primary" type="submit">Sign in</button>
+</form>
+</section>
+<section id="workspace" hidden>
+<nav aria-label="Modules"><button data-module="cv_formatting" aria-pressed="true">CV Formatting</button><button data-module="cv_blinding" aria-pressed="false">CV Blinding</button><button disabled>CV Scoring · pending</button><button disabled>Company Profile · pending</button><button disabled>Blind JD · pending</button></nav>
+<div class="content">
+<p class="eyebrow">Document processing</p><h1 id="module-title">CV Formatting</h1><p id="module-description">Upload a CV and prepare a consistent Word document.</p>
+<div class="notice">Staging only. Use fictional documents. No external sharing.</div>
+<form id="job-form">
+<label>Source document<input id="file" type="file" accept=".docx,.pdf,.txt" required></label>
+<label>Alignment<select id="alignment"><option value="left">Left</option><option value="justify">Justified</option></select></label>
+<label class="check"><input id="language" type="checkbox">Correct spelling and grammar</label>
+<label class="check" id="gender-label" hidden><input id="gender" type="checkbox">Use gender-neutral candidate references</label>
+<button id="submit-job" type="submit" class="primary">Upload and process</button>
+</form>
+<section id="job-panel" class="result" hidden aria-labelledby="job-title"><h2 id="job-title">Current job</h2><p id="job-state" role="status" aria-live="polite"></p><button id="refresh-job" type="button">Refresh status</button><button id="download" type="button" hidden>Download Word document</button><p id="review-note" hidden>Human review required before external distribution.</p></section>
+</div>
+</section>
+<p id="message" class="message" role="status" aria-live="polite"></p>
+</main>
+</body>
+</html>
