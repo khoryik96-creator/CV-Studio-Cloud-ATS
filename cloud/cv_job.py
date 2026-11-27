@@ -13,12 +13,14 @@ class JobExecutionError(ValueError):
     pass
 
 def execute_cv_job(*,principal,lease,repository,storage,workers,ledger,policy,transport,
-                   alignment="left",correct_language=False,neutral_gender=False,enable_ocr=False):
+                   alignment="left",correct_language=False,neutral_gender=False,enable_ocr=False,check_supervisor=lambda:None):
     if lease.module not in ("cv_formatting","cv_blinding"):
         raise JobExecutionError("unsupported_job_module")
     def check():
+        check_supervisor()
         if not workers.heartbeat(principal,lease):
             raise JobExecutionError("job_lease_lost")
+        check_supervisor()
     check()
     job_row=repository.job(principal,lease.job_id)
     if not job_row or tuple(job_row)!=(lease.job_id,lease.module,"running",lease.document_id):

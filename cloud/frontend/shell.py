@@ -1,0 +1,115 @@
+"""Opt-in staging composition of the original CV Studio single-CV view.
+
+Only audited DOM fragments and fixed assets are served. Never serve the full
+desktop shell, its script directory, or its desktop routes.
+"""
+from pathlib import Path
+from copy import deepcopy
+from flask import Blueprint, Response, send_file
+
+ROOT=Path(__file__).resolve().parents[2]
+FRONTEND=Path(__file__).resolve().parent
+ASSETS={
+    "app.css": ROOT/"vendor/cvstudio/app.css",
+    "cv_client.js": FRONTEND/"cv_client.js",
+    "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
+    "bootstrap.js": FRONTEND/"bootstrap.js",
+}
+NAV=("Format","Batch","JDAnon","Company","Appraiser")
+TAGS=frozenset("div span button svg path circle ellipse h2 label input textarea select option p b strong small".split())
+ATTR=frozenset("id class style type title aria-label aria-hidden aria-pressed role disabled accept value placeholder for checked hidden viewbox width height fill stroke stroke-width stroke-linecap stroke-linejoin d cx cy r rx ry".split())
+
+def _one(source,key):
+    matches=source.xpath(".//*[@id=$key]",key=key)
+    if len(matches)!=1:
+        raise ValueError("Original UI fragment missing or ambiguous")
+    return matches[0]
+
+def _clean(node):
+    # Strict positive tag/attribute policy; no script, forms, URL-bearing
+    # attributes, inline event handlers, or custom executable elements.
+    for child in list(node):
+        if not isinstance(child.tag,str) or child.tag.lower() not in TAGS:
+            node.remove(child)
+        else:
+            _clean(child)
+    for key in list(node.attrib):
+        if key.lower() not in ATTR:
+            del node.attrib[key]
+    if "style" in node.attrib and any(x in node.attrib["style"].lower() for x in ("url(","@import","expression(","\\", "/*")):
+        del node.attrib["style"]
+    if node.tag=="button":
+        node.set("type","button")
+    return node
+
+def render_shell():
+    from lxml import html, etree
+    source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
+    nav=deepcopy(_one(source,"pageTabs"))
+    keep={"tab"+x for x in NAV}
+    for node in list(nav):
+        if node.get("id") not in keep:
+            nav.remove(node)
+        else:
+            if node.get("id")!="tabFormat":
+                node.set("disabled","disabled")
+                node.set("title","Staging integration pending")
+            if node.get("id")=="tabAppraiser":
+                node.set("class","page-tab")
+                labels=node.xpath(".//span[@class='tab-label']")
+                if len(labels)!=1:
+                    raise ValueError("Original scoring label missing")
+                labels[0].text="CV Scoring"
+    view=deepcopy(_one(source,"viewFormat"))
+    for key in ("progressWrap","singleAiQuickPanel","singleSummaryToggle","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
+        node=_one(view,key)
+        if key=="singleSummaryToggle":
+            node=node.getparent()
+        node.getparent().remove(node)
+    for node in view.xpath(".//*[@data-cv-open-ready]"):
+        node.getparent().remove(node)
+    _one(view,"fileInput").set("accept",".pdf,.docx,.txt")
+    _one(view,"fileInput").set("aria-label","Source CV file")
+    _one(view,"cvInput").set("aria-label","Raw CV text")
+    _one(view,"outputBox").set("role","status")
+    for node in view.xpath(".//button"):
+        if node.get("id") in {"btnFormat","btnBlind","btnDocx"}:
+            node.set("disabled","disabled")
+        if node.get("onclick")=="clearInput()":
+            node.set("id","cloudClearInput")
+    _clean(nav);_clean(view)
+    # The original CSS and two-card input/output structure remain the source.
+    # Pending modules are visible but disabled, not loaded as desktop scripts.
+    shell=html.fromstring("""<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV Studio Cloud</title><link rel="stylesheet" href="/cloud-ui/assets/app.css"><script src="/cloud-ui/assets/cv_client.js" defer></script><script src="/cloud-ui/assets/existing_cv_controls.js" defer></script><script src="/cloud-ui/assets/bootstrap.js" defer></script></head><body><div class="app"><div class="header"><div><h1>CV Studio</h1><p>Cloud staging · fictional documents only</p></div><button id="cloudLogout" class="sec" type="button" hidden>Sign out</button></div><section class="card" id="cloudLoginPanel"><div class="card-head"><h2>Sign in</h2></div><div class="card-body"><form id="cloudLogin" method="post" action="/cloud-ui"><label>Organisation <input name="tenant" required autocomplete="organization" maxlength="63"></label><label>Email <input name="email" required type="email" autocomplete="username" maxlength="254"></label><label>Password <input name="password" required type="password" autocomplete="current-password" maxlength="256"></label><button type="submit" class="primary">Sign in</button></form></div></section><p id="cloudMessage" role="status" aria-live="polite"></p><div id="cloudContent" style="display:none"><div class="card" id="cloudJobOptions"><div class="card-body"><div class="btn-row"><label>CV alignment <select id="cloudAlignment"><option value="left">Left</option><option value="justify">Justify</option></select></label><label><input type="checkbox" id="cloudLanguage"> Correct spelling and grammar</label><label><input type="checkbox" id="cloudNeutral"> Gender-neutral blinded CV</label></div><p>Word download is available after processing. Structured preview, summary, batch and other module integration are pending.</p><div class="btn-row"><button class="sec" type="button" id="cloudRefresh">Refresh job status</button><button class="sec" type="button" id="cloudRecover">Recover unconfirmed submission</button></div></div></div></div></div></body></html>""")
+    content=_one(shell,"cloudContent")
+    content.insert(0,nav)
+    content.append(view)
+    return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
+
+def register_existing_ui(app):
+    # Only an explicitly configured staging app with real authenticated APIs
+    # can mount this view. A health-only or auth-only app cannot mount it.
+    rules={(r.rule,method) for r in app.url_map.iter_rules() for method in r.methods}
+    required={("/api/auth/login","POST"),("/api/auth/me","GET"),("/api/auth/logout","POST"),("/api/documents","POST"),("/api/jobs","POST"),("/api/jobs/<uuid:job_id>","GET"),("/api/jobs/<uuid:job_id>/download","GET")}
+    if "cvcloud_auth" not in app.extensions or not required.issubset(rules):
+        raise ValueError("Authenticated CV services required before mounting existing UI")
+    page=render_shell()
+    bp=Blueprint("existing_cloud_ui",__name__)
+    @bp.get("/cloud-ui")
+    def index():
+        response=Response(page,mimetype="text/html")
+        response.headers["Content-Security-Policy"]="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        return response
+    @bp.get("/cloud-ui/assets/<name>")
+    def asset(name):
+        from flask import abort
+        if name not in ASSETS:
+            abort(404)
+        return send_file(ASSETS[name],conditional=False,max_age=0)
+    @bp.after_request
+    def headers(response):
+        response.headers["Cache-Control"]="no-store"
+        response.headers["X-Content-Type-Options"]="nosniff"
+        response.headers["Referrer-Policy"]="no-referrer"
+        return response
+    app.register_blueprint(bp)
