@@ -507,6 +507,41 @@ class TestPostgres(unittest.TestCase):
         with self.repo.scoped(b) as (conn,tenant,user):
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.account_audit").fetchone()[0],0)
 
+    def test_account_admin_http_boundary(self):
+        from cloud.account_admin import AccountAdmin
+        from cloud.app import create_app,COOKIE
+        a,b=self.principals
+        service=AccountAdmin(self.repo)
+        with psycopg.connect(DSN) as conn:
+            conn.execute("UPDATE cvcloud.users SET role='owner' WHERE tenant_id=%s AND id=%s",(a.tenant_id,a.user_id))
+        raw=self.auth.login(self.ids[0][2],"synthetic@example.test","synthetic-password-123","account-http-fixture")
+        owner=self.auth.principal(raw)
+        target=service.create(owner,email="target@example.test",role="recruiter",password="fictional-password-123")
+        target_raw=self.auth.login(self.ids[0][2],target.email,"fictional-password-123","account-http-target")
+        origin="https://cv.example.test"
+        app=create_app(auth_store=PostgresAuthStore(self.connect),public_origin=origin,account_admin=service)
+        client=app.test_client()
+        other=app.test_client()
+        client.set_cookie(COOKIE,raw,domain="cv.example.test",secure=True)
+        other.set_cookie(COOKIE,self.tokens[1],domain="cv.example.test",secure=True)
+        url="/api/admin/accounts"
+        response=client.get(url,base_url=origin)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual({x["user_id"] for x in response.json["items"]},{owner.user_id,target.user_id})
+        self.assertEqual(other.get(url,base_url=origin).status_code,403)
+        headers={"Origin":origin,"X-CSRF-Token":owner.csrf}
+        action=url+"/"+target.user_id+"/actions"
+        payload={"action":"suspend","expected_revision":"1"}
+        self.assertEqual(client.post(action,base_url=origin,json=payload).status_code,403)
+        self.assertEqual(client.post(url+"/"+b.user_id+"/actions",base_url=origin,headers=headers,json=payload).status_code,403)
+        result=client.post(action,base_url=origin,headers=headers,json=payload)
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json["account"]["revision"],"2")
+        self.assertFalse(result.json["account"]["active"])
+        self.assertIsNone(self.auth.principal(target_raw))
+        self.assertEqual(client.post(action,base_url=origin,headers=headers,json=payload).status_code,409)
+        self.assertEqual(client.post(action,base_url=origin,headers=headers,json={"action":"password_reset","expected_revision":"2","value":"fictional"}).status_code,400)
+
     def test_password_and_tenant_revocation(self):
         tenant,user,_=self.ids[0]
         with psycopg.connect(DSN) as conn:
