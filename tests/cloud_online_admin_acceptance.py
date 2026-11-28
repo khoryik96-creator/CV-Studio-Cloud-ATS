@@ -5,9 +5,14 @@ caller owns the disposable DB lifecycle and creates the admin role password.
 """
 from uuid import uuid4
 
-def verify_admin_acceptance(test, *, boot_connect, owner_connect, admin_connect, password, owner_a, owner_b):
+def verify_admin_acceptance(test, *, boot_connect, owner_connect, admin_connect, auth_connect, password, owner_a, owner_b):
     import psycopg
-    from cloud.auth import Principal,password_hash
+    from cloud.auth import Principal,password_hash,Auth,digest,TTL
+    from cloud.deploy.online_auth import DedicatedAuthStore
+    from datetime import datetime,timezone
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import secrets
     from cloud.account_admin import AccountAdminError
     from cloud.documents_jobs import DocumentJobs,ScopeError
     from cloud.deploy.workspace_admin_install import install
@@ -51,7 +56,11 @@ def verify_admin_acceptance(test, *, boot_connect, owner_connect, admin_connect,
             service.change(actor,user_id=target,expected_revision=1,action="suspend")
     with test.assertRaises(AccountAdminError):
         service.change(manager,user_id=recruiter_id,expected_revision=1,action="role_change",value="admin")
+    auth=Auth(DedicatedAuthStore(auth_connect))
+    token=auth.login("one","recruiter@example.test","fictional-account-acceptance-123","192.0.2.3")
+    test.assertIsNotNone(auth.principal(token))
     suspended=service.change(manager,user_id=recruiter_id,expected_revision=1,action="suspend")
+    test.assertIsNone(auth.principal(token))
     test.assertFalse(suspended.active)
     test.assertEqual(suspended.revision,2)
     with test.assertRaisesRegex(AccountAdminError,"^account_conflict$"):
@@ -59,9 +68,29 @@ def verify_admin_acceptance(test, *, boot_connect, owner_connect, admin_connect,
     test.assertTrue(service.change(manager,user_id=recruiter_id,expected_revision=2,action="reactivate").active)
     promoted=service.change(owner_a,user_id=recruiter_id,expected_revision=3,action="role_change",value="admin")
     test.assertEqual((promoted.role,promoted.revision),("admin",4))
+    # Race a previously checked login against explicit session revocation.
+    # Whichever transaction wins, the old credential revision must not
+    # leave an authenticated session after revocation completes.
+    store=DedicatedAuthStore(auth_connect)
+    checked=store.find_account("one","recruiter@example.test")
+    test.assertEqual(checked.credential_version,4)
+    raw=secrets.token_urlsafe(32)
+    gate=Barrier(2,timeout=10)
+    def login_race():
+        gate.wait()
+        return store.create_session(digest(raw),secrets.token_urlsafe(32),checked,datetime.now(timezone.utc)+TTL)
+    def revoke_race():
+        gate.wait()
+        return service.change(owner_a,user_id=recruiter_id,expected_revision=4,action="revoke_sessions")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        login=pool.submit(login_race)
+        revoke=pool.submit(revoke_race)
+        test.assertEqual(revoke.result(timeout=20).revision,5)
+        test.assertIn(login.result(timeout=20),(True,False))
+    test.assertIsNone(auth.principal(raw))
     with owner_connect() as conn:
         conn.execute("SELECT set_config('cvcloud.tenant_id',%s,true),set_config('cvcloud.user_id',%s,true)",
             (owner_a.tenant_id,owner_a.user_id))
         events=conn.execute("SELECT action FROM cvcloud.account_audit WHERE tenant_id=%s AND target_id=%s",
             (owner_a.tenant_id,recruiter_id)).fetchall()
-        test.assertCountEqual([row[0] for row in events],["suspend","reactivate","role_change"])
+        test.assertCountEqual([row[0] for row in events],["suspend","reactivate","role_change","revoke_sessions"])
