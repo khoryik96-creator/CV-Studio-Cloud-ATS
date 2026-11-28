@@ -83,7 +83,7 @@ def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_so
                     return Completion(fixture_blind_answer, 100, 100)
                 if scoring_enabled and system == scoring_system:
                     data = json.loads(prompt)
-                    if data["cv"] == scoring_cv and data["jd"] == scoring_jd:
+                    if data["cv"].strip() == scoring_cv.strip() and data["jd"].strip() == scoring_jd.strip():
                         assessments = []
                         for criterion in data["criteria"]:
                             quote = scoring_evidence[criterion["requirement"]]

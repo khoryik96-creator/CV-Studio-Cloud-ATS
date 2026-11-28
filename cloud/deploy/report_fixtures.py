@@ -42,7 +42,7 @@ def completion(jd_source):
 
     def fake(system, prompt):
         data = json.loads(prompt)
-        if system == jd_system and data["source"] == jd_source:
+        if system == jd_system and data["source"].strip() == jd_source.strip():
             report = BLIND_JD
         elif system == company_system and data["company_name"] == COMPANY:
             report = {
