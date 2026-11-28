@@ -81,6 +81,7 @@ def initialize():
             conn.execute("GRANT CONNECT,CREATE ON DATABASE cvcloud_online TO cvcloud_schema_owner")
             conn.execute("GRANT CONNECT ON DATABASE cvcloud_online TO cvcloud_auth")
             conn.execute("REVOKE ALL ON SCHEMA public FROM PUBLIC")
+            conn.execute("GRANT USAGE ON SCHEMA public TO cvcloud_schema_owner")
             conn.execute("SET LOCAL ROLE cvcloud_schema_owner")
             for statement in statements:
                 conn.execute(statement,prepare=False)
