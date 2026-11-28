@@ -100,6 +100,16 @@ class WorkspacePostgresTest(unittest.TestCase):
             self.assertEqual(selected,policy)
             self.assertEqual(transport(policy.provider,policy.model,"system","prompt",1).text,"{}")
             with tempfile.TemporaryDirectory() as tmp:
+                # Exercise the actual online composition, not just independent services.
+                from cloud.deploy.online_workspace import assemble_workspace
+                from cloud.deploy.online_auth import OnlineAuthConfig
+                app=assemble_workspace(config=OnlineAuthConfig("https://cvstudio.hyplug.co","127.0.0.1",credentials[online_init.AUTH]),
+                    auth_connect=lambda:connect(online_init.AUTH),document_connect=lambda:connect(ROLES["document"]),
+                    provider_connect=lambda:connect(ROLES["provider"]),storage_root=Path(tmp).resolve(),
+                    cipher=cipher,catalogue=catalogue)
+                with app.test_client() as client:
+                    headers={"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https"}
+                    self.assertEqual(client.get("/cloud-ui",base_url="https://cvstudio.hyplug.co",headers=headers).status_code,200)
                 uploads=UploadService(doc,PrivateStorage(Path(tmp).resolve()))
                 raw=b"Fictional candidate"
                 document=uploads.upload(a,io.BytesIO(raw),media_type="text/plain",byte_size=len(raw))
