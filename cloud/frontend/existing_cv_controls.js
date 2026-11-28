@@ -27,6 +27,37 @@
     let job=null,intent=null,busy=false,disposed=false,uploadUnconfirmed=false,seq=0;
     const lifetime=new AbortController();
     let previewButton=null,previewShown=null;
+    const progress=Object.fromEntries(["progressWrap","progressLabel","progressTimer","progressFill","pstep1","pstep2","pstep3","pstep3label"].map(k=>[k,document.getElementById(k)]));
+    const hasProgress=Object.values(progress).every(Boolean);
+    let started=null,clockId=null,phase=null;
+    function tick(){
+      if(!hasProgress||started===null)return;
+      const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));
+      progress.progressTimer.textContent=Math.floor(seconds/60)+"m "+String(seconds%60).padStart(2,"0")+"s";
+    }
+    function showProgress(state){
+      if(!hasProgress||disposed)return;
+      phase=state;
+      if(started===null)started=Date.now();
+      const terminal=["succeeded","failed","needs_review"].includes(state);
+      const stage=terminal?3:state==="running"?2:1;
+      progress.progressWrap.classList.add("on");
+      progress.progressLabel.textContent=messages[state]||"Submitting CV…";
+      progress.pstep3label.textContent=state==="failed"?"Failed":state==="needs_review"?"Review required":"Complete";
+      // Stage-based progress, not a fabricated percentage of AI work.
+      progress.progressFill.style.width=({1:"12%",2:"55%",3:"100%"})[stage];
+      [progress.pstep1,progress.pstep2,progress.pstep3].forEach((n,i)=>{
+        n.classList.toggle("active",i+1===stage&&!terminal);
+        n.classList.toggle("done",i+1<stage||state==="succeeded");
+      });
+      tick();
+      if(terminal){clearInterval(clockId);clockId=null;}
+      else if(clockId===null)clockId=setInterval(tick,1000);
+    }
+    function resetProgress(){
+      clearInterval(clockId);clockId=null;started=null;phase=null;
+      if(hasProgress){progress.progressWrap.classList.remove("on");progress.progressFill.style.width="0%";progress.progressTimer.textContent="0s";}
+    }
     if(typeof client.preview==='function'&&typeof document.createElement==='function'&&nodes.btnDocx.parentNode){
       previewButton=document.createElement('button');previewButton.type='button';previewButton.className='sec';previewButton.id='cloudPreview';previewButton.textContent='Preview output';
       nodes.btnDocx.parentNode.insertBefore(previewButton,nodes.btnDocx);
@@ -48,6 +79,7 @@
       const next=await client.status(jobId,{signal:lifetime.signal});
       if(disposed||current!==seq||job?.job_id!==jobId)return;
       job=next;
+      if(phase!==next.state)showProgress(next.state);
       nodes.blindBadge.style.display=next.module==="cv_blinding"&&["succeeded","needs_review"].includes(next.state)?"inline-flex":"none";
       if(previewShown!==next.job_id)display(messages[next.state]);
       controls();
@@ -55,6 +87,7 @@
     }
     async function submit(blind){
       if(busy||intent||disposed||uploadUnconfirmed||(job&&["queued","running"].includes(job.state)))return;
+      resetProgress();showProgress("submitting");
       busy=true;seq++;job=null;nodes.blindBadge.style.display="none";controls();
       try{
         const moduleName=blind?"cv_blinding":"cv_formatting";
@@ -71,9 +104,10 @@
         const jobId=await client.submit(intent,{signal:lifetime.signal});
         if(disposed)return;
         job={job_id:jobId,state:"queued",module:moduleName};
-        intent=null;display(messages.queued);
+        intent=null;showProgress("queued");display(messages.queued);
         await refresh();
       }catch{
+        if(!intent&&!job&&!uploadUnconfirmed)showProgress("failed");
         display(intent?"Job submission not confirmed. Do not create another job. Recover using the same request.":uploadUnconfirmed?"Upload not confirmed. Check document history before starting a new session.":job?"Job submitted; status unavailable. Refresh the job rather than submitting again.":"Request failed. Check input and options.");
       }finally{busy=false;controls();}
     }
@@ -129,7 +163,7 @@
     nodes.btnDocx.addEventListener("click",download);
     controls();
     return Object.freeze({refresh,resumeSubmission,dispose(){
-      disposed=true;seq++;lifetime.abort();intent=null;job=null;
+      resetProgress();disposed=true;seq++;lifetime.abort();intent=null;job=null;
       if(previewButton){previewButton.removeEventListener('click',showPreview);previewButton.remove();}
       nodes.btnFormat.removeEventListener("click",format);
       nodes.btnBlind.removeEventListener("click",blind);
