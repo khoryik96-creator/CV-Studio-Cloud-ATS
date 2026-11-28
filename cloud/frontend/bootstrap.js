@@ -53,8 +53,8 @@
    if(el("viewAppraiser"))scoringBinding=CVCloudScoring.bind({document,client});
    for(const report of Object.values(reportBindings))report.dispose();
    reportBindings={};
-   if(el("viewCompany")){
-     for(const key of ["Company","JDAnon"])reportBindings[key]=CVCloudReports.bind({document,client,key});
+   for(const key of ["Company","JDAnon"]){
+     if(el("view"+key))reportBindings[key]=CVCloudReports.bind({document,client,key});
    }
    if(profileBinding)profileBinding.dispose();
    if(el("viewJACreate"))profileBinding=CVCloudCreateProfile.bind({document,client,confirm:message=>window.confirm(message)});
