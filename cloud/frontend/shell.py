@@ -50,7 +50,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False,online_candidate=False):
+def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_blind_jd=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False,online_candidate=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -66,6 +66,8 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                 enabled.add("tabAppraiser")
             if enable_reports:
                 enabled.update(("tabCompany", "tabJDAnon"))
+            elif enable_blind_jd:
+                enabled.add("tabJDAnon")
             if enable_profile:
                 enabled.add("tabJACreate")
             if node.get("id") not in enabled:
@@ -177,8 +179,8 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         content.append(scoring)
         bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
         bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/scoring_cloud.js", defer="defer"))
-    if enable_reports:
-        for key in ("Company", "JDAnon"):
+    if enable_reports or enable_blind_jd:
+        for key in (("Company", "JDAnon") if enable_reports else ("JDAnon",)):
             view = deepcopy(_one(source, "view" + key))
             is_company = key == "Company"
             heading = view.xpath(".//div[@class='card-head']")[0]
@@ -338,9 +340,10 @@ def register_existing_ui(app, *, enable_batch=False, online_candidate=False):
     accounts_required={("/api/admin/accounts","GET"),("/api/admin/accounts/<uuid:user_id>/actions","POST")}
     scoring_required={("/api/scoring/jobs","GET"),("/api/scoring/jobs","POST"),("/api/scoring/jobs/<uuid:job_id>","GET")}
     report_routes = {("/api/" + slug + "/jobs", method) for slug in ("company-profile", "blind-jd") for method in ("GET", "POST")}
+    blind_jd_routes = {("/api/blind-jd/jobs", method) for method in ("GET", "POST")}
     profile_routes = {("/api/create-profile/settings","GET"),("/api/create-profile/prepare","POST"),
                       ("/api/create-profile/jobs","POST"),("/api/create-profile/jobs","GET")}
-    page=render_shell(enable_profile=profile_routes.issubset(rules),enable_reports=report_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
+    page=render_shell(enable_profile=profile_routes.issubset(rules),enable_reports=report_routes.issubset(rules),enable_blind_jd=blind_jd_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
         enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules,online_candidate=online_candidate)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
