@@ -9,6 +9,7 @@ RESULT_COLUMN = {
     "cv_scoring": "scoring_result",
     "blind_jd": "report_result",
     "company_profile": "report_result",
+    "create_profile": "profile_result",
 }
 
 

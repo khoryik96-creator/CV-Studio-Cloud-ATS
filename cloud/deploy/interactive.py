@@ -31,8 +31,11 @@ def connect():
 def seed():
     import psycopg
     from cloud.auth import password_hash
+    from cloud.deploy.jobadder_fixture import ACCOUNT_SECRET_ENV, KEY, digest
     if os.environ.get("CVCLOUD_TEST_DSN") != ADMIN:
         raise RuntimeError("Synthetic admin DSN required")
+    if os.environ.get(ACCOUNT_SECRET_ENV) != KEY:
+        raise RuntimeError("Synthetic JobAdder key required")
     migrations = sorted((ROOT / "cloud/migrations").glob("*.sql"))
     if not migrations:
         raise RuntimeError("No migrations")
@@ -66,11 +69,14 @@ def seed():
             db.execute("INSERT INTO cvcloud.users (tenant_id,id,email_normalized,password_hash,role) VALUES (%s,%s,%s,%s,'recruiter')",
                        (tenant,user,EMAIL,password_hash(PASSWORD)))
             db.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)", (tenant,))
+            db.execute("""INSERT INTO cvcloud.jobadder_fixture_config (tenant_id,account_id,credential_digest)
+                VALUES (%s,%s,%s)""", (tenant,tenant,digest(tenant,KEY)))
         db.execute("CREATE TABLE public.cvcloud_fixture_marker (signature text PRIMARY KEY)")
         db.execute("INSERT INTO public.cvcloud_fixture_marker VALUES (%s)", (signature,))
 
 def environment(*, reverse=False):
     from cloud.auth import Principal
+    from cloud.deploy.jobadder_fixture import ACCOUNT_SECRET_ENV
     from cloud.staging import compose_synthetic
     fixtures = ROOT / "tests/fixtures"
     principals=[Principal(TENANT,USER,"recruiter",""),Principal(OTHER_TENANT,OTHER_USER,"recruiter","")]
@@ -86,6 +92,7 @@ def environment(*, reverse=False):
             (fixtures/"cloud_cv_blind_jd.txt").read_text(encoding="utf-8"),
             (fixtures/"cloud_cv_company_name.txt").read_text(encoding="utf-8"),
         ),
+        fixture_jobadder_key=os.environ.get(ACCOUNT_SECRET_ENV),
         strict_upload=True,enable_batch=True,concurrency=1)
 
 def web():
