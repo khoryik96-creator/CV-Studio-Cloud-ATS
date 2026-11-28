@@ -2,9 +2,12 @@
 # Explicit disposable project; refuses to use any pre-existing Compose project.
 set -eu
 cd "$(dirname "$0")"
-project="cvcloud-smoke-$$"
+project="cvcloud-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
 export CVCLOUD_HEALTH_PORT="${CVCLOUD_HEALTH_PORT:-18080}"
 case "$CVCLOUD_HEALTH_PORT" in ''|*[!0-9]*) echo "Invalid port" >&2; exit 1;; esac
+if [ -n "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ]; then
+    echo "Unexpected existing project; refusing to continue" >&2; exit 1
+fi
 compose() { docker compose -p "$project" -f compose.yaml "$@"; }
 cleanup() { compose down --remove-orphans >/dev/null 2>&1 || true; }
 trap cleanup EXIT
