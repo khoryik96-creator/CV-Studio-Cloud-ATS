@@ -121,6 +121,18 @@
       const response=await json("/api/jobs",{method:"POST",contentType:"application/json",body:JSON.stringify(payload),write:true,expected,signal});
       return id(response.job_id);
     }
+    function prepareScoring(cvId,jdId,criteria){
+      active();
+      return Object.freeze({document_id:id(cvId),jd_document_id:id(jdId),criteria,idempotency_key:id(uuid())});
+    }
+    async function submitScoring(intent,{signal}={}){
+      const value=await json("/api/scoring/jobs",{expected:active(),method:"POST",write:true,signal,
+        contentType:"application/json",body:JSON.stringify(intent)});
+      return id(value.job_id);
+    }
+    async function scoringReports(jobId=null,{signal}={}){
+      return json("/api/scoring/jobs"+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
+    }
     async function history(kind,{before=null,limit=25,signal}={}){
       const expected=active();
       if(!["jobs","documents"].includes(kind)||!Number.isInteger(limit)||limit<1||limit>50)throw new CloudError("invalid_history");
@@ -156,7 +168,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount,aiUsage});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,prepareScoring,submitScoring,scoringReports,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount,aiUsage});
   }
   return Object.freeze({create,CloudError,options,source});
 });

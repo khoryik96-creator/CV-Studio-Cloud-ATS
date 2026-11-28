@@ -76,6 +76,44 @@ def check_blinding(document_id, auth, other):
     print("Synthetic HTTPS blinding and human review passed", file=sys.stderr)
 
 
+def check_scoring(document_id, auth, other):
+    fixture = (ROOT / "tests/fixtures/cloud_cv_scoring_jd.txt").read_bytes()
+    jd = json.loads(expect("POST", "/api/documents", 201, fixture,
+                           {**auth, "Content-Type": "text/plain"})[2])["document_id"]
+    payload = {
+        "document_id": document_id,
+        "jd_document_id": jd,
+        "idempotency_key": str(uuid4()),
+        "criteria": [
+            {"id": "automation", "required": True, "requirement": "Automate recovery checks with Ansible."},
+            {"id": "clusters", "required": True, "requirement": "Manage enterprise Kubernetes clusters."},
+        ],
+    }
+    endpoint = "/api/scoring/jobs"
+    write = {**auth, "Content-Type": "application/json"}
+    denied = {**other, "Content-Type": "application/json"}
+    body = json.dumps(payload)
+    expect("POST", endpoint, 404, body, denied)
+    job_id = json.loads(expect("POST", endpoint, 202, body, write)[2])["job_id"]
+    assert json.loads(expect("POST", endpoint, 202, body, write)[2])["job_id"] == job_id
+    payload["criteria"][0]["required"] = False
+    expect("POST", endpoint, 409, json.dumps(payload), write)
+    path = endpoint + "/" + job_id
+    expect("GET", path, 404, headers=other)
+    expect("GET", path, 401)
+    assert wait_for_output(path, auth) == "succeeded"
+    result = json.loads(expect("GET", path, 200, headers=auth)[2])["assessment"]
+    assert result["human_review_required"]
+    rows = {row["id"]: row for row in result["assessments"]}
+    assert rows["automation"]["status"] == "evidenced"
+    assert rows["automation"]["quote"] == "Automated recovery checks with Ansible."
+    assert rows["clusters"]["status"] == "not_evidenced"
+    assert rows["clusters"]["quote"] == ""
+    path_history = json.loads(expect("GET", endpoint, 200, headers=auth)[2])["items"]
+    assert any(item["job_id"] == job_id for item in path_history)
+    print("Synthetic HTTPS CV scoring and evidence retrieval passed", file=sys.stderr)
+
+
 def check_persistence(job_id):
     job_id = str(UUID(job_id))
     path = "/api/jobs/" + job_id
@@ -139,6 +177,7 @@ def main():
     wait_for_output(other_path, other)
     expect("GET",other_path+"/download?review=1",200,headers=other)
     check_blinding(doc, auth, other)
+    check_scoring(doc, auth, other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     expect("POST","/api/auth/logout",200,headers=other)

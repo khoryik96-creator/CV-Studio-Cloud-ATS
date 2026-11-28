@@ -10,7 +10,7 @@ from cloud.private_storage import DOCX,StorageError
 
 CV_MODULES=frozenset({"cv_formatting","cv_blinding"})
 
-def register(app,auth,cookie,same_origin,uploads,repository,outputs):
+def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False):
     def protected(*,write=False):
         def decorate(fn):
             @wraps(fn)
@@ -61,6 +61,30 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs):
         job=repository.enqueue(principal,document_id=uid(body.get("document_id")),module=module,
             idempotency_key=uid(body.get("idempotency_key")),options=options)
         return jsonify(job_id=job),202
+
+    if enable_scoring:
+        from cloud.scoring_contract import parse_rubric
+        from cloud.scoring_jobs import reports
+
+        @app.post("/api/scoring/jobs")
+        @protected(write=True)
+        def submit_scoring(principal):
+            request.max_content_length = 96 * 1024
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or set(body) != {"document_id", "jd_document_id", "criteria", "idempotency_key"}:
+                return jsonify(error="invalid_request"), 400
+            job_id = repository.enqueue(principal, document_id=uid(body["document_id"]), module="cv_scoring",
+                idempotency_key=uid(body["idempotency_key"]), scoring=(uid(body["jd_document_id"]), parse_rubric(body["criteria"])))
+            return jsonify(job_id=job_id), 202
+
+        @app.get("/api/scoring/jobs")
+        @app.get("/api/scoring/jobs/<uuid:job_id>")
+        @protected()
+        def scoring_reports(principal, job_id=None):
+            result = reports(repository, principal, str(job_id) if job_id is not None else None)
+            if result is None:
+                return jsonify(error="not_found"), 404
+            return jsonify(result)
 
     @app.get("/api/jobs")
     @app.get("/api/documents")
