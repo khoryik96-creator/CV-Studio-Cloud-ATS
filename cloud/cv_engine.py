@@ -20,7 +20,7 @@ from lxml import etree
 
 from cloud import cv_pipeline as pipeline
 from cloud.cv_outline import _merge_bullet_level_lists
-from cvstudio_layout_parity import GUARDRAILS, steady, finish, blind_levels, _role_bullet_groups
+from cvstudio_layout_parity import GUARDRAILS, steady, blind_levels, _role_bullet_groups
 from cvstudio_docx_repair import repair
 from cvstudio_document_safety import validate_zip_payload
 import cvstudio_blind_mask as blind_mask
@@ -256,7 +256,7 @@ def process(source_text, *, complete, blind=False, alignment="left",
                 prepared["summary_bullets"]=normal._cv_strip_pay_from_summary(prepared["summary_bullets"])
             request="Anonymise this parsed CV JSON:\n\n"+json.dumps(prepared,ensure_ascii=False,allow_nan=False)
             value=answer_json(complete("blind",blind_prompt(neutral_gender),request,MAX_TOKENS))
-            cv=finish(pipeline.postprocess_blind(steady(value,prepared),prepared))
+            cv=pipeline.postprocess_blind(steady(value,prepared),prepared)
             if _shape(prepared)!=_shape(cv):
                 raise EngineError("blind_structure_changed")
             levels=blind_levels(levels,prepared,cv)

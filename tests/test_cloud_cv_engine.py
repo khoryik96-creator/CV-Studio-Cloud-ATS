@@ -42,6 +42,43 @@ class TestEngine(unittest.TestCase):
         ):
             with self.assertRaises(EngineError):
                 verify_blind_identity(document(part,xml),PARSED)
+    def test_blind_brand_cleanup_preserves_ordinary_words(self):
+        from cvstudio_blind_mask import _blind_collect_org_mask_terms, _blind_replace_org_terms_in_text
+
+        ordinary = "Digital marketing, Digitalisation and DIGITAL operations."
+        self.assertEqual(_blind_replace_org_terms_in_text(ordinary, ["Digi"]), ordinary)
+        self.assertNotIn("Digi", _blind_collect_org_mask_terms({"summary_bullets": [ordinary]}))
+        self.assertEqual(_blind_replace_org_terms_in_text("Launched DigiPrepaid and Maybank2u.", ["Digi", "Maybank"]),
+                         "Launched [Company]Prepaid and [Company]2u.")
+        self.assertIn("Maxis", _blind_collect_org_mask_terms(
+            {"work_experiences": [{"roles": [{"bullets": ["LED THE MAXISONE LAUNCH"]}]}]},
+        ))
+        self.assertEqual(_blind_replace_org_terms_in_text("LED THE MAXISONE LAUNCH", ["Maxis"]),
+                         "LED THE [Company]ONE LAUNCH")
+
+    def test_distinct_blind_roles_keep_their_employer_boundaries(self):
+        from copy import deepcopy
+        from cloud.cv_pipeline import postprocess_blind
+        from cvstudio_cv_normalize import _merge_adjacent_continuous_company_stints
+
+        original = {"work_experiences": [
+            {"company": "Fictional North Ltd", "date_range": "Jan 2020 - Jan 2021",
+             "roles": [{"title": "Engineer", "date_range": "Jan 2020 - Jan 2021", "bullets": ["Ran backups."]}]},
+            {"company": "Fictional South Ltd", "date_range": "Feb 2021 - Dec 2021",
+             "roles": [{"title": "Senior Engineer", "date_range": "Feb 2021 - Dec 2021", "bullets": ["Ran restores."]}]},
+        ]}
+        blinded = deepcopy(original)
+        entries = blinded["work_experiences"]
+        for entry in entries:
+            entry["company"] = "Technology Company"
+        self.assertEqual(len(_merge_adjacent_continuous_company_stints(entries)), 1)
+        result = postprocess_blind(blinded, original)["work_experiences"]
+        self.assertEqual(len(result), 2)
+        self.assertEqual({row["roles"][0]["title"] for row in result}, {"Engineer", "Senior Engineer"})
+        for entry in entries:
+            entry["company"] = "[Company]"
+        self.assertEqual(len(_merge_adjacent_continuous_company_stints(entries)), 2)
+
     def test_existing_generic_label_is_not_identity_leak(self):
         buf=io.BytesIO()
         with zipfile.ZipFile(buf,"w") as archive:

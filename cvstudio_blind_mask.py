@@ -109,6 +109,19 @@ _BLIND_ORG_TECH_ALLOWLIST = {
 }
 
 
+# What may follow an organisation name glued to a product to count as its brand
+# (HyPlug): a new capitalised word or a digit - DigiPrepaid, GrabFood, Maybank2u -
+# not more letters of the same word (Digital, Digitalisation, DIGITAL).
+_BLIND_BRAND_JOIN = r"(?=(?-i:[A-Z][a-z]|[0-9]))"
+
+
+def _blind_brand_join(term):
+    # Preserve the existing treatment of this known uppercase product name.
+    if term.casefold() == "maxis":
+        return r"(?=(?-i:[A-Z][a-z]|[0-9]|ONE(?![A-Za-z0-9])))"
+    return _BLIND_BRAND_JOIN
+
+
 _BLIND_CURATED_ORG_NAMES = {
     "Maxis", "Celcom", "Digi", "CelcomDigi", "U Mobile", "Telekom Malaysia", "TM",
     "Axiata", "Time dotCom", "YTL", "Yes", "Astro", "Unifi",
@@ -1396,7 +1409,10 @@ def _blind_collect_org_mask_terms(original_cv):
         if not name or name.lower() in _BLIND_ORG_TECH_ALLOWLIST:
             continue
         exact_pat = re.compile(r"(?<![A-Za-z0-9])" + re.escape(name) + r"(?![A-Za-z0-9])", re.I)
-        prefix_pat = re.compile(r"(?<![A-Za-z0-9])" + re.escape(name) + r"(?=[A-Z0-9][A-Za-z0-9]{1,30})", re.I)
+        # HyPlug: a glued brand form needs a new capitalised word or a digit after
+        # the name (DigiPrepaid, Maybank2u), never more of the same word - under re.I a
+        # bare [A-Z0-9] also matched "Digital", collecting Digi from "digital marketing".
+        prefix_pat = re.compile(r"(?<![A-Za-z0-9])" + re.escape(name) + _blind_brand_join(name), re.I)
         if _blind_curated_name_present(name, compact_text, exact_pat, prefix_pat):
             _blind_add_mask_term(terms, name)
 
@@ -1439,17 +1455,7 @@ def _blind_org_term_specs(terms, employer_terms=()):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9&.'\u2019\- ]{2,40}", term):
             continue
         prefix = re.escape(term)
-        if everyday:
-            # Product/brand form for an everyday word has to be real CamelCase or carry
-            # a digit - GrabFood, Maybank2u - because a plain [A-Z0-9] under re.I also
-            # matches the lowercase inflections "boosted", "grabbing", "metadata" and
-            # "yesterday" and would eat their first syllable. This holds whether or not
-            # the word is also this candidate's employer. An ALL-CAPS compound such as
-            # GRABFOOD is genuinely indistinguishable from an ALL-CAPS ordinary word and
-            # is deliberately left alone.
-            lookahead = r"(?=(?-i:[A-Z][a-z]|[0-9]))"
-        else:
-            lookahead = r"(?=[A-Z0-9][A-Za-z0-9]{1,30})"
+        lookahead = _blind_brand_join(term)
         specs.append((
             re.compile(r"(?<![A-Za-z0-9])(" + prefix + r")" + lookahead, re.I),
             ambiguous,
