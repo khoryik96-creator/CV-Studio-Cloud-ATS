@@ -1,4 +1,5 @@
-# Local, fictional-only staging. Never run on a shared/production host.
+# Fictional data only. For private staging on an approved shared VPS, follow
+# docs/CLOUD_INTERACTIVE_FIXTURE.md for project isolation and loopback access.
 x-fixture: &fixture
   build:
     context: ../..
