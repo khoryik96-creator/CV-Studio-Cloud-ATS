@@ -92,7 +92,7 @@ class WorkspacePostgresTest(unittest.TestCase):
                 c.execute("SELECT set_config('cvcloud.tenant_id',%s,true)",(a.tenant_id,))
                 c.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,100000)",(a.tenant_id,))
             cipher=SecretCipher({"test":secrets.token_bytes(32)},"test")
-            policy=ModelPolicy("deepseek","fictional-model",100,200,4096,1024)
+            policy=ModelPolicy("deepseek","fictional-model",100,200,200000,32000)
             catalogue=ProviderCatalogue([policy])
             web_config=ProviderConfig(writer,cipher,catalogue)
             self.assertTrue(web_config.configure(a,provider=policy.provider,model=policy.model,secret="fictional-key",expected_revision=0).enabled)
@@ -134,6 +134,10 @@ class WorkspacePostgresTest(unittest.TestCase):
                 self.assertTrue(leases.finish(a,lease,"failed"))
                 self.assertEqual(doc.job(a,job)[2],"failed")
                 self.assertEqual(doc.history(a,kind="jobs")["items"][0]["job_id"],job)
+                from tests.cloud_online_worker_acceptance import verify_worker_acceptance
+                verify_worker_acceptance(self,principal=a,other=b,storage_root=Path(tmp).resolve(),
+                    document_connect=lambda:connect(ROLES["document"]),worker_connect=lambda:connect(ROLES["worker"]),
+                    provider_connect=lambda:connect(ROLES["provider_reader"]),cipher=cipher,catalogue=catalogue,policy=policy)
             self.assertTrue(web_config.disable(a,expected_revision=1).enabled is False)
         finally:
             try:
