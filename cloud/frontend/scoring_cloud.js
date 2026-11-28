@@ -158,6 +158,8 @@ window.CVCloudScoring = Object.freeze({
     load.addEventListener("click",async()=>{
       if(!historySelect.value)return;
       current=historySelect.value;
+      completed=null;
+      status.textContent="Loading assessment…";
       output.replaceChildren();
       try{await refresh(true);}catch{status.textContent="Sign in again to load assessments.";}
     },options);
