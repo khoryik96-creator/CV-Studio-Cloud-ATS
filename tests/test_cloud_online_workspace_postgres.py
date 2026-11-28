@@ -87,6 +87,10 @@ class WorkspacePostgresTest(unittest.TestCase):
             from cloud.deploy.workspace_budget import change_limit
             install_reports(owner)
             install_reports(owner)
+            for role,statement in ((ROLES["document"],"UPDATE cvcloud.jobs SET report_result=NULL"),(ROLES["worker"],"UPDATE cvcloud.jobs SET report_options=NULL")):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    with connect(role) as conn:
+                        conn.execute(statement)
             self.assertEqual(change_limit(owner,tenant="one",expected=None,new_limit=100000),(100000,0,0))
             with self.assertRaises(ValueError):
                 change_limit(owner,tenant="one",expected=None,new_limit=200000)
@@ -136,6 +140,9 @@ class WorkspacePostgresTest(unittest.TestCase):
                 op=str(uuid4())
                 ledger.reserve(a,lease,operation_id=op,provider=policy.provider,model=policy.model,estimated_microusd=10)
                 self.assertEqual(change_limit(owner,tenant="one",expected=100000,new_limit=0),(0,10,0))
+                from cloud.ai_budget import BudgetDenied
+                with self.assertRaises(BudgetDenied):
+                    ledger.reserve(a,lease,operation_id=str(uuid4()),provider=policy.provider,model=policy.model,estimated_microusd=1)
                 self.assertTrue(ledger.settle(a,lease,operation_id=op,actual_microusd=5))
                 self.assertEqual(change_limit(owner,tenant="one",expected=0,new_limit=100000),(100000,0,5))
                 self.assertTrue(leases.finish(a,lease,"failed"))
