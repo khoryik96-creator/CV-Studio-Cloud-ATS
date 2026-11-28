@@ -155,8 +155,9 @@ class WorkspacePostgresTest(unittest.TestCase):
                 verify_worker_acceptance(self,principal=a,other=b,storage_root=Path(tmp).resolve(),
                     document_connect=lambda:connect(ROLES["document"]),worker_connect=lambda:connect(ROLES["worker"]),
                     provider_connect=lambda:connect(ROLES["provider_reader"]),cipher=cipher,catalogue=catalogue,policy=policy)
-                from tests.cloud_online_crm_journal_acceptance import verify_crm_journal
+                from tests.cloud_online_crm_journal_acceptance import verify_crm_journal,verify_sandbox_service
                 verify_crm_journal(self,principal=a,other=b,document_repository=doc,worker_repository=worker,document_id=document)
+                verify_sandbox_service(self,principal=a,other=b,document_repository=doc,worker_repository=worker,storage_root=Path(tmp).resolve())
             self.assertTrue(web_config.disable(a,expected_revision=1).enabled is False)
         finally:
             try:
