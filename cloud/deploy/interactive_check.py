@@ -256,6 +256,9 @@ def main():
     if len(sys.argv)==2 and sys.argv[1]=="health":
         expect("GET","/healthz",200)
         return
+    if len(sys.argv) == 2 and sys.argv[1] in ("ready", "not-ready"):
+        expect("GET", "/staging-readyz", 200 if sys.argv[1] == "ready" else 503)
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "persistence":
         check_persistence(sys.argv[2])
         return
