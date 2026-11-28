@@ -5,8 +5,8 @@ from cloud.auth import Auth, TTL
 
 COOKIE = "__Host-cvcloud"
 
-def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None, onboarding=None, enable_scoring=False, enable_reports=False, create_profile=None):
-    if any(type(flag) is not bool for flag in (enable_scoring, enable_reports)) or ((enable_scoring or enable_reports) and cv_services is None) or (create_profile is not None and cv_services is None):
+def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None, onboarding=None, enable_scoring=False, enable_reports=False, enable_blind_jd=False, create_profile=None):
+    if any(type(flag) is not bool for flag in (enable_scoring, enable_reports, enable_blind_jd)) or ((enable_scoring or enable_reports or enable_blind_jd) and cv_services is None) or (create_profile is not None and cv_services is None):
         raise ValueError("Reports require authenticated document services")
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=32 * 1024 * 1024)
@@ -78,7 +78,7 @@ def create_app(*, auth_store=None, public_origin=None, cv_services=None, provide
         return response
     if cv_services is not None:
         from cloud.cv_api import register
-        register(app,auth,COOKIE,same_origin,*cv_services,enable_scoring=enable_scoring,enable_reports=enable_reports,create_profile=create_profile)
+        register(app,auth,COOKIE,same_origin,*cv_services,enable_scoring=enable_scoring,enable_reports=enable_reports,enable_blind_jd=enable_blind_jd,create_profile=create_profile)
     if provider_admin is not None:
         from cloud.provider_admin_api import register as register_provider_admin
         register_provider_admin(app,auth,COOKIE,same_origin,provider_admin)
