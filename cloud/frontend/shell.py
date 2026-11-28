@@ -82,7 +82,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                     raise ValueError("Original scoring label missing")
                 labels[0].text="CV Scoring"
     view=deepcopy(_one(source,"viewFormat"))
-    for key in ("progressWrap","singleAiQuickPanel","singleSummaryToggle","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
+    for key in ("singleAiQuickPanel","singleSummaryToggle","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
         node=_one(view,key)
         if key=="singleSummaryToggle":
             node=node.getparent()
@@ -98,6 +98,10 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
             node.set("disabled","disabled")
         if node.get("onclick")=="clearInput()":
             node.set("id","cloudClearInput")
+    _one(view,"pstep1").xpath("./span")[0].text="Queued"
+    _one(view,"pstep2label").text="Processing"
+    _one(view,"pstep3label").text="Complete"
+    _one(view,"costPill").getparent().remove(_one(view,"costPill"))
     _clean(nav);_clean(view)
     # The original CSS and two-card input/output structure remain the source.
     # Pending modules are visible but disabled, not loaded as desktop scripts.

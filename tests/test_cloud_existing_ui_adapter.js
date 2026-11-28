@@ -58,6 +58,10 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  forbid=true;await assert.rejects(client.status(JOB),/authentication_required/);
  await assert.rejects(client.status(JOB),/authentication_required/);
  const nodes=Object.fromEntries(IDS.map(k=>[k,{value:"Fictional CV",style:{},files:[],hasAttribute:()=>false,addEventListener(t,fn){this.listener=fn;},removeEventListener(){this.listener=null;}}]));
+ for(const k of ["progressWrap","progressLabel","progressTimer","progressFill","pstep1","pstep2","pstep3","pstep3label"]){
+   const classes=new Set();
+   nodes[k]={style:{},textContent:"",classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),toggle:(x,on)=>on?classes.add(x):classes.delete(x),contains:x=>classes.has(x)}};
+ }
  const fakeDoc={getElementById:k=>nodes[k]};
  let submissionsCount=0,downloads=0,review=false;
  const fakeClient={upload:async()=>DOC,prepare:()=>({idempotency_key:KEY}),submit:async()=>{submissionsCount++;if(submissionsCount===1)throw Error("unconfirmed");return JOB;},status:async()=>({job_id:JOB,module:"cv_blinding",state:"needs_review"}),download:async()=>({blob:new Blob(["word"]),requiresReview:true})};
@@ -65,12 +69,12 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  nodes.btnFormat.onclick=()=>{};assert.throws(()=>bind(args),/Remove desktop handlers/);delete nodes.btnFormat.onclick;
  const binding=bind(args);
  await nodes.btnBlind.listener();assert.equal(nodes.btnBlind.disabled,true);assert.equal(submissionsCount,1);
- await binding.resumeSubmission();assert.equal(submissionsCount,2);assert.equal(nodes.btnDocx.disabled,false);
+ await binding.resumeSubmission();assert.equal(submissionsCount,2);assert.equal(nodes.btnDocx.disabled,false);assert.equal(nodes.progressFill.style.width,"100%");assert.equal(nodes.pstep3label.textContent,"Review required");
  await nodes.btnDocx.listener();assert.equal(downloads,0);review=true;await nodes.btnDocx.listener();assert.equal(downloads,1);
  binding.dispose();assert.equal(nodes.cvInput.value,"");assert.equal(nodes.btnDocx.listener,null);
  const pending=bind({...args,client:{...fakeClient,upload:async()=>{throw Error("uncertain upload");}}});
  await nodes.btnFormat.listener();assert.equal(nodes.btnFormat.disabled,true);assert.match(nodes.outputBox.textContent,/Upload not confirmed/);pending.dispose();
  const queued=bind({...args,client:{...fakeClient,submit:async()=>JOB,status:async()=>({job_id:JOB,module:"cv_formatting",state:"running"})}});
- await nodes.btnFormat.listener();assert.equal(nodes.btnFormat.disabled,true);assert.equal(nodes.btnDocx.disabled,true);queued.dispose();
+ await nodes.btnFormat.listener();assert.equal(nodes.btnFormat.disabled,true);assert.equal(nodes.btnDocx.disabled,true);assert.equal(nodes.progressFill.style.width,"55%");assert.ok(nodes.progressWrap.classList.contains("on"));assert.match(nodes.progressTimer.textContent,/m .*s/);queued.dispose();assert.ok(!nodes.progressWrap.classList.contains("on"));
  console.log("Existing CV Studio cloud adapter fixture passed");
 })().catch(e=>{console.error(e);process.exitCode=1;});

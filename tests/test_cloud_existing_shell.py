@@ -8,6 +8,8 @@ class TestExistingShell(unittest.TestCase):
         root=html.fromstring(render_shell())
         for key in ("btnFormat","btnBlind","btnDocx","cvInput","fileInput","outputBox","cloudClearInput","cloudLogin"):
             self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
+        for key in ("progressWrap","progressTimer","progressFill","pstep1","pstep2","pstep3"):
+            self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
         self.assertEqual([n.get("id") for n in root.xpath(".//*[@id='pageTabs']/button")],["tabFormat","tabBatch","tabJDAnon","tabCompany","tabAppraiser"])
         self.assertFalse(root.xpath(".//*[@id='tabJobLeads' or @id='jaBar' or @id='settingsPanel']"))
         self.assertFalse(root.xpath(".//iframe | .//object | .//embed"))
