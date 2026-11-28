@@ -91,9 +91,16 @@ def check_persistence(job_id):
     expect("GET", path + "/download?review=1", 200, headers=auth)
     other = login("fictional-other")
     expect("GET", path + "/preview?review=1", 404, headers=other)
+    resumed = json.dumps({"document_id": job["document_id"], "module": "cv_formatting",
+                          "idempotency_key": str(uuid4())})
+    next_job = json.loads(expect("POST", "/api/jobs", 202, resumed,
+                                 {**auth, "Content-Type": "application/json"})[2])["job_id"]
+    next_path = "/api/jobs/" + next_job
+    wait_for_output(next_path, auth)
+    expect("GET", next_path + "/download?review=1", 200, headers=auth)
     expect("POST", "/api/auth/logout", 200, headers=auth)
     expect("POST", "/api/auth/logout", 200, headers=other)
-    print("Synthetic HTTPS job history, preview and download survived stack restart")
+    print("Synthetic HTTPS history and downloads persisted, and the recreated worker processed a job")
 
 
 def main():
