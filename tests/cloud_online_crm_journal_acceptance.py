@@ -43,3 +43,53 @@ def verify_crm_journal(test, *, principal, other, document_repository, worker_re
     with restarted.guard(principal,settings["account_id"],third.job_id,"different@example.test",lease_token=third.token):
         pass
     test.assertTrue(leases.finish(principal,third,"needs_review"))
+
+
+def verify_sandbox_service(test, *, principal, other, document_repository, worker_repository, storage_root):
+    from io import BytesIO
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from docx import Document
+    from cloud.jobadder_sandbox import SandboxJobAdder, SandboxSession
+    from cloud.deploy.workspace_crm_service import SandboxCreateProfile
+    from cloud.private_storage import PrivateStorage,DOCX
+    from cloud.upload_service import UploadService
+    from cloud.documents_jobs import ScopeError
+
+    storage=PrivateStorage(storage_root)
+    word=Document()
+    word.add_paragraph("Fictional Candidate")
+    word.add_paragraph("sandbox-service@example.test")
+    word.add_paragraph("Fictional experience only.")
+    buffer=BytesIO()
+    word.save(buffer)
+    raw=buffer.getvalue()
+    document=UploadService(document_repository,storage).upload(principal,BytesIO(raw),media_type=DOCX,byte_size=len(raw))
+    client=Mock()
+    client.request_json.side_effect=[(200,{"items":[],"totalCount":0}),(201,{"candidateId":123})]
+    client.request_raw.return_value=SimpleNamespace(status=201)
+    def resolve(p):
+        if p.tenant_id!=principal.tenant_id:
+            raise CRMUnavailable("Unknown sandbox")
+        return SandboxSession(p.tenant_id,"fictional-service",1,True,client)
+    adapter=SandboxJobAdder(resolve,AttemptJournal(worker_repository,b"j"*32).guard)
+    web=SandboxCreateProfile(document_repository,storage,adapter)
+    worker=SandboxCreateProfile(worker_repository,storage,adapter)
+    review=web.prepare(principal,document)
+    test.assertEqual(review["candidate"]["email"],"sandbox-service@example.test")
+    test.assertEqual(client.request_json.call_count,0)
+    job=web.confirm(principal,document,str(uuid4()),review["confirmation"])
+    leases=WorkerLeases(worker_repository)
+    lease=leases.claim(principal,cv_only=True,include_profile=True)
+    test.assertEqual(lease.job_id,job)
+    test.assertTrue(worker.run_claimed(principal,lease,leases))
+    test.assertEqual(web.reports(principal,job)["result"],{"outcome":"created","candidate_id":"123","cv_uploaded":True})
+    with test.assertRaises(ScopeError):
+        web.reports(other,job)
+    duplicate=web.confirm(principal,document,str(uuid4()),review["confirmation"])
+    lease=leases.claim(principal,cv_only=True,include_profile=True)
+    test.assertEqual(lease.job_id,duplicate)
+    test.assertFalse(worker.run_claimed(principal,lease,leases))
+    test.assertEqual(web.reports(principal,duplicate)["state"],"needs_review")
+    test.assertEqual(client.request_json.call_count,2)
+    test.assertEqual(client.request_raw.call_count,1)
