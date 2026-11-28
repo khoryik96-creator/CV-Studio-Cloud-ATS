@@ -41,7 +41,7 @@ cleanup() {
     if [ "$result" -ne 0 ]; then
         # This script runs only on disposable CI with synthetic credentials.
         compose ps -a || true
-        compose logs --no-color --tail=80 initialize migrate grant-install admin-install web || true
+        compose logs --no-color --tail=80 initialize migrate grant-install admin-install report-install web || true
     fi
     compose down --remove-orphans --volumes >/dev/null 2>&1 || true
     rm -rf "$secret_dir"
@@ -73,7 +73,7 @@ origin="https://cvstudio.hyplug.co"
 headers={"Host":"cvstudio.hyplug.co","Origin":origin,"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https","Content-Type":"application/json"}
 assert req("GET","/readyz",headers)[0]==503
 status,_,page=req("GET","/cloud-ui",headers)
-assert status==200 and b"Online workspace candidate" in page
+assert status==200 and b"Online workspace candidate" in page and b'id="viewJDAnon"' in page and b'id="viewCompany"' not in page
 status,cookie,_=req("POST","/api/auth/login",headers,json.dumps({"tenant":"fictional","email":"owner@example.test","password":"synthetic-owner-ci-only-123"}))
 assert status==200 and "Secure" in cookie and "HttpOnly" in cookie
 status,_,body=req("GET","/api/auth/me",dict(headers,Cookie=cookie.split(";")[0]))
@@ -87,5 +87,7 @@ status,_,body=req("GET","/api/admin/accounts",headers)
 assert status==200 and len(json.loads(body)["items"])==1
 status,_,body=req("GET","/api/admin/ai-usage",headers)
 assert status==200 and json.loads(body)=={"configured":False}
+assert req("GET","/api/blind-jd/jobs",headers)[0]==200
+assert req("GET","/api/company-profile/jobs",headers)[0]==404
 '
 echo "Internal online workspace startup and authenticated UI passed. Live worker remains disabled."
