@@ -17,3 +17,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sh -n cloud/deploy/smoke.sh
       - run: sh cloud/deploy/smoke.sh
+  online-auth-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sh -n cloud/deploy/online-auth-smoke.sh
+      - run: sh cloud/deploy/online-auth-smoke.sh
