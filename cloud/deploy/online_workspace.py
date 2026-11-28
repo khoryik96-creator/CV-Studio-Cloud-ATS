@@ -22,7 +22,7 @@ from cloud.deploy.workspace_roles import verify_service_role
 
 def assemble_workspace(*, config, auth_connect, document_connect,
                        provider_connect, storage_root,
-                       cipher, catalogue, admin_connect=None, enable_blind_jd=False):
+                       cipher, catalogue, admin_connect=None, enable_blind_jd=False, enable_company_profile=False):
     """Build internal web candidate for formatting, blinding and scoring.
 
     Connections are transaction factories supplied by a future verified
@@ -55,6 +55,7 @@ def assemble_workspace(*, config, auth_connect, document_connect,
         ai_usage=OnlineAIUsage(admin) if admin is not None else None,
         enable_scoring=True,
         enable_blind_jd=enable_blind_jd,
+        enable_reports=enable_company_profile,
     )
     register_existing_ui(app, enable_batch=True, online_candidate=True)
     app.wsgi_app = TrustedProxyOnly(app.wsgi_app, config.proxy_ip)
@@ -63,7 +64,7 @@ def assemble_workspace(*, config, auth_connect, document_connect,
 
 
 def assemble_worker(*, worker_connect, provider_connect, storage_root,
-                    cipher, catalogue, principals, concurrency=2, transport_factory=None, enable_blind_jd=False):
+                    cipher, catalogue, principals, concurrency=2, transport_factory=None, enable_blind_jd=False, tenant_research=None):
     """Build a bounded worker without starting it or dispatching AI requests."""
     if not callable(worker_connect) or not callable(provider_connect) or worker_connect is provider_connect:
         raise ValueError("Separate worker and provider connections required")
@@ -87,4 +88,5 @@ def assemble_worker(*, worker_connect, provider_connect, storage_root,
         enable_ocr=False,
         enable_scoring=True,
         enable_blind_jd=enable_blind_jd,
+        tenant_research=tenant_research,
     )
