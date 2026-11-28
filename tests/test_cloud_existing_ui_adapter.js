@@ -9,13 +9,19 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  const html=fs.readFileSync("index.html","utf8");
  for(const name of IDS)assert.ok(html.includes('id="'+name+'"'),name);
  for(const suffix of Object.values(NAV)){assert.ok(html.includes('id="tab'+suffix+'"'));assert.ok(html.includes('id="view'+suffix+'"'));}
- const calls=[];let rejectJob=true,forbid=false;
+ const calls=[];let rejectJob=true,forbid=false,scoringAttempt=0;
  const client=create({uuid:()=>KEY,fetcher:async(path,init)=>{
    calls.push({path,init});
    assert.equal(init.credentials,"same-origin");assert.equal(init.redirect,"error");assert.equal(init.cache,"no-store");
    if(path==="/api/auth/me")return response({role:"recruiter",csrf:"fictional-csrf"});
    if(path==="/api/documents"){assert.equal(init.headers["X-CSRF-Token"],"fictional-csrf");return response({document_id:DOC},201);}
    if(path==="/api/jobs"){if(rejectJob){rejectJob=false;throw Error("network");}return response({job_id:JOB},202);}
+   if(path==="/api/scoring/jobs"){
+     scoringAttempt++;
+     if(scoringAttempt===1)return response({},502);
+     if(scoringAttempt===2)return response({job_id:"bad"},202);
+     return response({job_id:JOB},202);
+   }
    if(path==="/api/jobs/"+JOB)return response({job_id:JOB,document_id:DOC,module:"cv_blinding",state:"needs_review"},forbid?401:200);
    if(path==="/api/jobs/"+JOB+"/preview?review=1")return response({job_id:JOB,requires_review:true,paragraphs:["Fictional <script>"]});
    if(path==="/api/jobs/"+JOB+"/preview")return response({},409);
@@ -36,6 +42,14 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  assert.equal(await client.submit(intent),JOB);
  const submissions=calls.filter(x=>x.path==="/api/jobs");
  assert.equal(submissions[0].init.body,submissions[1].init.body);
+ const scoring=client.prepareScoring(d,"44444444-4444-4444-8444-444444444444",
+   [{id:"cloud",requirement:"Cloud operations",required:true}]);
+ await assert.rejects(client.submitScoring(scoring),/request_unconfirmed/);
+ await assert.rejects(client.submitScoring(scoring),/invalid_response/);
+ assert.equal(await client.submitScoring(scoring),JOB);
+ const scoringCalls=calls.filter(x=>x.path==="/api/scoring/jobs");
+ assert.equal(scoringCalls.length,3);
+ assert.ok(scoringCalls.every(x=>x.init.body===scoringCalls[0].init.body));
  assert.equal((await client.status(JOB)).state,"needs_review");
  await assert.rejects(client.preview(JOB),/conflict_or_review_required/);
  assert.equal((await client.preview(JOB,{review:true})).paragraphs[0],"Fictional <script>");

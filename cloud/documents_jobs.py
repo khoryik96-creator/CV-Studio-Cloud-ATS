@@ -61,11 +61,17 @@ class DocumentJobs:
                 FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(document_id))).fetchone()
 
-    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options()):
+    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options(), scoring=None):
         if module not in SELECTED_MODULES or not isinstance(options,Options):
             raise ValueError("Module or options invalid")
         options.validate(module)
         document_id, key = uid(document_id), uid(idempotency_key)
+        if scoring is not None:
+            from cloud.scoring_contract import rubric
+            jd_id, criteria = scoring
+            jd_id, criteria = uid(jd_id), rubric(criteria)
+            if module != "cv_scoring" or jd_id == document_id:
+                raise ValueError("Invalid scoring documents")
         with self.scoped(principal) as (conn,tenant,user):
             # Lock the account to serialize this user's queue admission. Per-user
             # and tenant-wide quotas and storage limits will be added separately.
@@ -78,10 +84,19 @@ class DocumentJobs:
             if prior:
                 if tuple(prior[1:]) != (document_id,module,options.alignment,options.correct_language,options.neutral_gender):
                     raise JobConflict("Idempotency key already used for a different request")
+                if module == "cv_scoring":
+                    prior_input = conn.execute("""SELECT scoring_jd_id::text,scoring_criteria FROM cvcloud.jobs
+                        WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,prior[0])).fetchone()
+                    expected_input = (jd_id, criteria) if scoring is not None else (None, None)
+                    if tuple(prior_input) != expected_input:
+                        raise JobConflict("Idempotency key already used for a different rubric or JD")
                 return prior[0]
             doc=conn.execute("SELECT id FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s",(tenant,user,document_id)).fetchone()
             if not doc:
                 raise ScopeError("Document not found")
+            if scoring is not None and not conn.execute("""SELECT id FROM cvcloud.documents
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,jd_id)).fetchone():
+                raise ScopeError("JD not found")
             count=conn.execute("""SELECT count(*) FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
                 AND state IN ('queued','running','needs_review')""",(tenant,user)).fetchone()[0]
             if count >= 10:
@@ -89,6 +104,10 @@ class DocumentJobs:
             job_id=str(uuid4())
             conn.execute("""INSERT INTO cvcloud.jobs (tenant_id,id,owner_id,document_id,module,idempotency_key,alignment,correct_language,neutral_gender)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",(tenant,job_id,user,document_id,module,key,options.alignment,options.correct_language,options.neutral_gender))
+            if scoring is not None:
+                from psycopg.types.json import Jsonb
+                conn.execute("""UPDATE cvcloud.jobs SET scoring_jd_id=%s,scoring_criteria=%s
+                    WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (jd_id,Jsonb(criteria),tenant,user,job_id))
             return job_id
 
     def job(self, principal, job_id):

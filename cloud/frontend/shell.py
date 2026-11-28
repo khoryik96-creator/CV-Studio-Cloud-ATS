@@ -15,6 +15,7 @@ ASSETS={
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
     "provider_settings.js": FRONTEND/"provider_settings.js",
+    "scoring_cloud.js": FRONTEND/"scoring_cloud.js",
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
     "history_cloud.js": FRONTEND/"history_cloud.js",
     "account_cloud.js": FRONTEND/"account_cloud.js",
@@ -47,7 +48,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
+def render_shell(*,enable_batch=False,enable_scoring=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -56,11 +57,18 @@ def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_hist
         if node.get("id") not in keep:
             nav.remove(node)
         else:
-            if node.get("id")!="tabFormat" and not (enable_batch and node.get("id")=="tabBatch"):
+            enabled = {"tabFormat"}
+            if enable_batch:
+                enabled.add("tabBatch")
+            if enable_scoring:
+                enabled.add("tabAppraiser")
+            if node.get("id") not in enabled:
                 node.set("disabled","disabled")
                 node.set("title","Staging integration pending")
             if node.get("id")=="tabAppraiser":
                 node.set("class","page-tab")
+                if enable_scoring:
+                    node.attrib.pop("title", None)
                 labels=node.xpath(".//span[@class='tab-label']")
                 if len(labels)!=1:
                     raise ValueError("Original scoring label missing")
@@ -122,6 +130,41 @@ def render_shell(*,enable_batch=False,enable_provider_settings=False,enable_hist
         bootstrap.addprevious(script)
         options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
         options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
+    if enable_scoring:
+        scoring = deepcopy(_one(source, "viewAppraiser"))
+        for key in ("appraiserRouteBadge", "appraiserAiQuickHint", "appraiserSalary",
+                    "appraiserCopyBtn", "appraiserWordBtn", "appraiserPdfBtn", "appraiserBadge"):
+            node = _one(scoring, key)
+            if key in {"appraiserRouteBadge", "appraiserSalary"}:
+                node = node.getparent()
+            if key == "appraiserAiQuickHint":
+                node = node.getparent().getparent()
+            node.getparent().remove(node)
+        for button in scoring.xpath(".//button[@onclick='clearAppraiser()']"):
+            button.set("id", "cloudScoringClear")
+        for kind in ("Cv", "Jd"):
+            name = "Candidate CV" if kind == "Cv" else "Job description"
+            file = _one(scoring, f"appraiser{kind}File")
+            file.set("accept", ".txt,.pdf,.docx")
+            file.set("aria-label", name + " file")
+            _one(scoring, f"appraiser{kind}Text").set("aria-label", name + " text")
+            drop = _one(scoring, f"appraiser{kind}Drop")
+            drop.xpath(".//div[@class='appraiser-upload-sub']")[0].text = "PDF, DOCX or TXT"
+        remarks = scoring.xpath(".//div[contains(@class, 'appraiser-remarks')]")[0]
+        remarks.clear(keep_tail=True)
+        remarks.set("class", "appraiser-panel appraiser-remarks")
+        remarks.append(html.fromstring('<div><label for="cloudScoringRubric">Job requirements</label><p>Enter up to 30 job-related requirements copied from the JD, one per line. Review each requirement for fairness.</p><textarea id="cloudScoringRubric" class="appraiser-ta" maxlength="15030"></textarea></div>'))
+        actions = scoring.xpath(".//div[@class='appraiser-actions']")[0]
+        actions[0].text = "Assess documented evidence for each requirement. A recruiter reviews the results."
+        _clean(scoring)
+        output = _one(scoring, "appraiserOutput")
+        output.set("style", "display:block")
+        output[0][0].text = "Evidence report"
+        output.append(html.fromstring('<div><p id="cloudScoringStatus" role="status"></p><label for="cloudScoringHistory">Recent assessments</label> <select id="cloudScoringHistory"></select><button id="cloudScoringLoad" type="button" class="sec">Load report</button></div>'))
+        scoring.set("style", "display:none")
+        content.append(scoring)
+        bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
+        bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/scoring_cloud.js", defer="defer"))
     if enable_provider_settings:
         # Reuse only the main AI card, not the desktop settings drawer or
         # integration cards. Model choices must come from the cloud server.
@@ -202,7 +245,8 @@ def register_existing_ui(app, *, enable_batch=False):
     admin_required={("/api/admin/ai-provider","GET"),("/api/admin/ai-provider","POST"),("/api/admin/ai-provider/disable","POST")}
     history_required={("/api/jobs","GET"),("/api/documents","GET"),("/api/jobs/<uuid:job_id>/preview","GET")}
     accounts_required={("/api/admin/accounts","GET"),("/api/admin/accounts/<uuid:user_id>/actions","POST")}
-    page=render_shell(enable_batch=enable_batch,enable_provider_settings=admin_required.issubset(rules),
+    scoring_required={("/api/scoring/jobs","GET"),("/api/scoring/jobs","POST"),("/api/scoring/jobs/<uuid:job_id>","GET")}
+    page=render_shell(enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
         enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
