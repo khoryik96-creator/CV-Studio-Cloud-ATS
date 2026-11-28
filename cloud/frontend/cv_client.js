@@ -20,6 +20,10 @@
     if(typeof value!=="string"||!UUID.test(value))throw new CloudError("invalid_identifier");
     return value.toLowerCase();
   }
+  function submittedId(value){
+    if(typeof value!=="string"||!UUID.test(value))throw new CloudError("invalid_response");
+    return id(value);
+  }
   function options(moduleName,value={}){
     if(!["cv_formatting","cv_blinding"].includes(moduleName)||!value||typeof value!=="object"||Array.isArray(value))throw new CloudError("unsupported_module");
     if(Object.keys(value).some(k=>!["alignment","correct_language","neutral_gender"].includes(k)))throw new CloudError("unsupported_option");
@@ -44,7 +48,7 @@
     let session=null,epoch=0;
     const active=()=>{if(!session)throw new CloudError("authentication_required");return epoch;};
     function clear(){session=null;epoch++;}
-    async function request(path,{method="GET",body,contentType,write=false,expected=epoch,signal,allowUnauthorized=false}={}){
+    async function request(path,{method="GET",body,contentType,write=false,expected=epoch,signal,allowUnauthorized=false,preserveIntent=false}={}){
       if(expected!==epoch)throw new CloudError("stale_session");
       const headers={};
       if(contentType)headers["Content-Type"]=contentType;
@@ -54,6 +58,7 @@
       catch(e){throw new CloudError(expected!==epoch?"stale_session":signal?.aborted?"request_aborted":"request_unconfirmed");}
       if(expected!==epoch)throw new CloudError("stale_session");
       if(response.status===401){clear();if(!allowUnauthorized)throw new CloudError("authentication_required");}
+      if(preserveIntent&&(response.status===408||response.status>=500))throw new CloudError("request_unconfirmed");
       if(!response.ok)throw new CloudError(response.status===409?"conflict_or_review_required":response.status===404?"not_found":response.status===413?"source_too_large":response.status===403?"forbidden":"request_rejected");
       return response;
     }
@@ -126,9 +131,9 @@
       return Object.freeze({document_id:id(cvId),jd_document_id:id(jdId),criteria,idempotency_key:id(uuid())});
     }
     async function submitScoring(intent,{signal}={}){
-      const value=await json("/api/scoring/jobs",{expected:active(),method:"POST",write:true,signal,
+      const value=await json("/api/scoring/jobs",{expected:active(),method:"POST",write:true,signal,preserveIntent:true,
         contentType:"application/json",body:JSON.stringify(intent)});
-      return id(value.job_id);
+      return submittedId(value.job_id);
     }
     async function scoringReports(jobId=null,{signal}={}){
       return json("/api/scoring/jobs"+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
