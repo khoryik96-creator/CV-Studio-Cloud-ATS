@@ -185,7 +185,9 @@
       const expected=active(),job=id(jobId);
       const value=await json("/api/jobs/"+job,{expected,signal});
       if(id(value.job_id)!==job||!STATES.has(value.state)||!["cv_formatting","cv_blinding"].includes(value.module))throw new CloudError("invalid_job_state");
-      return Object.freeze({job_id:job,module:value.module,state:value.state,document_id:id(value.document_id)});
+      const elapsed=value.elapsed_ms;
+      if(elapsed!==undefined&&(!Number.isSafeInteger(elapsed)||elapsed<0))throw new CloudError("invalid_job_elapsed");
+      return Object.freeze({job_id:job,module:value.module,state:value.state,document_id:id(value.document_id),elapsed_ms:elapsed});
     }
     async function preview(jobId,{review=false,signal}={}){
       const expected=active(),job=id(jobId);

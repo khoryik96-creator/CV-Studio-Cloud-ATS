@@ -11,7 +11,7 @@
    let rows=[],busy=false,closed=false,refreshing=false;
    const life=new AbortController();
    const notify=()=>{if(!closed)changed();};
-   const snapshot=()=>rows.map(({name,state,jobId},index)=>({name,state,jobId,index}));
+   const snapshot=()=>rows.map(({name,state,jobId,elapsedMs},index)=>({name,state,jobId,elapsedMs,index}));
    function select(files){
      if(closed||busy||rows.length)throw Error("Clear existing batch first");
      const all=Array.from(files);
@@ -68,7 +68,7 @@
          const status=await client.status(row.jobId,{signal:life.signal});
          if(closed)break;
          if(status.job_id!==row.jobId||status.module!==row.module||status.document_id!==row.doc)throw Error("Batch job identity mismatch");
-         row.state=status.state;notify();
+         row.state=status.state;row.elapsedMs=status.elapsed_ms;notify();
        }
      }finally{refreshing=false;}
    }
@@ -94,18 +94,30 @@
    const el=id=>document.getElementById(id);
    const input=el("batchFileInput"),drop=el("batchDropZone"),list=el("batchFileList"),run=el("btnBatchRun"),clear=el("cloudBatchClear"),summary=el("batchSummary"),format=el("batchTabFormat"),blind=el("batchTabBlind"),panel=el("batchControls");
    if([input,drop,list,run,clear,summary,format,blind,panel].some(x=>!x))throw Error("Batch controls missing");
-   let module="cv_formatting",disposed=false,notice="";
+   const timer=el("batchTimer");
+   let module="cv_formatting",disposed=false,notice="",startedAt=null,timerId=null;
+   function renderTime(){
+     if(startedAt!==null)timer.textContent=((performance.now()-startedAt)/1000).toFixed(1)+"s";
+   }
+   function stopTimer(){
+     clearInterval(timerId);timerId=null;
+   }
    const listeners=[];
    function on(node,event,fn){node.addEventListener(event,fn);listeners.push([node,event,fn]);}
    const core=create({client,validateSource:CVCloudClient.source,changed:render});
    function render(){
      if(disposed)return;
      const rows=core.snapshot(),busy=core.isBusy();
+     if(timer&&startedAt!==null&&(!rows.length||rows.every(row=>TERMINAL.has(row.state)))){
+       if(timerId!==null&&rows.length)renderTime();
+       stopTimer();
+       if(!rows.length){startedAt=null;timer.style.display="none";timer.textContent="";}
+     }
      list.textContent="";
      for(const row of rows){
        const item=document.createElement("div");item.className="batch-file-item";
        const name=document.createElement("span");name.textContent=row.name;item.append(name);
-       const state=document.createElement("span");state.textContent=" — "+LABELS[row.state];item.append(state);
+       const state=document.createElement("span");state.textContent=" — "+LABELS[row.state]+(Number.isSafeInteger(row.elapsedMs)?" · "+(row.elapsedMs/1000).toFixed(1)+"s":"");item.append(state);
        if(["succeeded","needs_review","submit_unconfirmed"].includes(row.state)){
          const b=document.createElement("button");b.type="button";b.className="sec";b.disabled=busy;
          b.textContent=row.state==="submit_unconfirmed"?"Recover submission":row.state==="needs_review"?"Download for review":"Download DOCX";
@@ -131,10 +143,16 @@
    on(drop,"drop",e=>{e.preventDefault();if(!input.disabled)choose(e.dataTransfer.files);});
    on(format,"click",()=>{module="cv_formatting";render();});
    on(blind,"click",()=>{module="cv_blinding";render();});
-   on(run,"click",async()=>{notice="";try{await core.start(module,readOptions(module));}catch{notice="Batch interrupted; check each row.";render();}});
+   on(run,"click",async()=>{
+     notice="";
+     if(timer&&startedAt===null){
+       startedAt=performance.now();timer.style.display="inline";renderTime();
+       timerId=setInterval(renderTime,100);
+     }
+     try{await core.start(module,readOptions(module));}catch{notice="Batch interrupted; check each row.";render();}});
    on(clear,"click",()=>{notice="";core.clear();render();});
    render();
-   return {refresh:core.refresh,dispose(){disposed=true;core.dispose();for(const [n,e,f] of listeners)n.removeEventListener(e,f);input.value="";input.disabled=true;list.textContent="";summary.textContent="";panel.style.display="none";}};
+   return {refresh:core.refresh,dispose(){disposed=true;stopTimer();if(timer){timer.textContent="";timer.style.display="none";}core.dispose();for(const [n,e,f] of listeners)n.removeEventListener(e,f);input.value="";input.disabled=true;list.textContent="";summary.textContent="";panel.style.display="none";}};
  }
  return {create,bind};
 });

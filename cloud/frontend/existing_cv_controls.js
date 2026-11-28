@@ -29,17 +29,26 @@
     let previewButton=null,previewShown=null;
     const progress=Object.fromEntries(["progressWrap","progressLabel","progressTimer","progressFill","pstep1","pstep2","pstep3","pstep3label"].map(k=>[k,document.getElementById(k)]));
     const hasProgress=Object.values(progress).every(Boolean);
-    let started=null,clockId=null,phase=null;
+    let started=null,clockId=null,phase=null,elapsedAtSample=0;
     function tick(){
       if(!hasProgress||started===null)return;
-      const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));
+      const incremental=["succeeded","failed","needs_review"].includes(phase)?0:performance.now()-started;
+      const seconds=Math.max(0,Math.floor((elapsedAtSample+incremental)/1000));
       progress.progressTimer.textContent=Math.floor(seconds/60)+"m "+String(seconds%60).padStart(2,"0")+"s";
     }
-    function showProgress(state){
+    function showProgress(state,elapsed){
       if(!hasProgress||disposed)return;
-      phase=state;
-      if(started===null)started=Date.now();
       const terminal=["succeeded","failed","needs_review"].includes(state);
+      const now=performance.now();
+      if(Number.isSafeInteger(elapsed)&&elapsed>=0){
+        elapsedAtSample=elapsed;
+        started=now;
+      }else if(started===null){
+        started=now;
+      }else if(terminal&&!["succeeded","failed","needs_review"].includes(phase)){
+        elapsedAtSample+=now-started;
+      }
+      phase=state;
       const stage=terminal?3:state==="running"?2:1;
       progress.progressWrap.classList.add("on");
       progress.progressLabel.textContent=messages[state]||"Submitting CV…";
@@ -55,7 +64,7 @@
       else if(clockId===null)clockId=setInterval(tick,1000);
     }
     function resetProgress(){
-      clearInterval(clockId);clockId=null;started=null;phase=null;
+      clearInterval(clockId);clockId=null;started=null;phase=null;elapsedAtSample=0;
       if(hasProgress){progress.progressWrap.classList.remove("on");progress.progressFill.style.width="0%";progress.progressTimer.textContent="0s";}
     }
     if(typeof client.preview==='function'&&typeof document.createElement==='function'&&nodes.btnDocx.parentNode){
@@ -79,7 +88,7 @@
       const next=await client.status(jobId,{signal:lifetime.signal});
       if(disposed||current!==seq||job?.job_id!==jobId)return;
       job=next;
-      if(phase!==next.state)showProgress(next.state);
+      if(phase!==next.state||next.elapsed_ms!==undefined)showProgress(next.state,next.elapsed_ms);
       nodes.blindBadge.style.display=next.module==="cv_blinding"&&["succeeded","needs_review"].includes(next.state)?"inline-flex":"none";
       if(previewShown!==next.job_id)display(messages[next.state]);
       controls();
