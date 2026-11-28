@@ -5,7 +5,8 @@ RUN groupadd --gid 10001 cvcloud && useradd --uid 10001 --gid 10001 --no-create-
 COPY cloud/deploy/requirements-online-auth.txt /tmp/requirements-online-auth.txt
 RUN python -m pip install -r /tmp/requirements-online-auth.txt && rm /tmp/requirements-online-auth.txt
 COPY cloud/__init__.py cloud/app.py cloud/auth.py cloud/auth_postgres.py ./cloud/
-COPY cloud/deploy/online_auth.py cloud/deploy/online_owner.py cloud/deploy/online_serve.py ./cloud/deploy/
+COPY cloud/deploy/online_auth.py cloud/deploy/online_owner.py cloud/deploy/online_serve.py cloud/deploy/online_init.py cloud/deploy/online_check.py cloud/deploy/online_auth_grants.sql ./cloud/deploy/
+COPY cloud/migrations/001_auth.sql cloud/migrations/004_auth_epoch.sql ./cloud/migrations/
 USER 10001:10001
 EXPOSE 8000
 CMD ["python","-m","cloud.deploy.online_serve"]

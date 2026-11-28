@@ -1,0 +1,88 @@
+# Auth-only candidate. No public port, no HyPlug networks, no production readiness.
+name: cvcloud-online-auth
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: cloud/deploy/Dockerfile.online-auth
+  image: cvcloud-online-auth:local
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  mem_limit: 512m
+  cpus: 1
+  pids_limit: 64
+  logging:
+    driver: json-file
+    options: {max-size: "5m", max-file: "2"}
+services:
+  online-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cvcloud_online
+      POSTGRES_USER: cvcloud_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/bootstrap_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    secrets: [bootstrap_password]
+    volumes: [online_database:/var/lib/postgresql/data]
+    networks: [database]
+    mem_limit: 768m
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cvcloud_bootstrap", "-d", "cvcloud_online"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  initialize:
+    <<: *app
+    command: ["python","-m","cloud.deploy.online_init"]
+    environment:
+      CVCLOUD_BOOTSTRAP_PASSWORD_FILE: /run/secrets/bootstrap_password
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+      CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password
+    secrets: [bootstrap_password,schema_password,auth_password]
+    networks: [database]
+    depends_on:
+      online-db: {condition: service_healthy}
+  web:
+    <<: *app
+    environment:
+      CVCLOUD_PUBLIC_ORIGIN: "${CVCLOUD_PUBLIC_ORIGIN:?Set exact HTTPS origin}"
+      CVCLOUD_TRUSTED_PROXY_IP: "${CVCLOUD_TRUSTED_PROXY_IP:?Set reserved ingress proxy IP}"
+      CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password
+    secrets: [auth_password]
+    networks: [database,ingress]
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD","python","-m","cloud.deploy.online_check"]
+      interval: 10s
+      timeout: 8s
+      retries: 10
+  owner:
+    <<: *app
+    profiles: [operator]
+    entrypoint: ["python","-m","cloud.deploy.online_owner"]
+    environment:
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+    secrets: [schema_password]
+    networks: [database]
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+networks:
+  database:
+    internal: true
+  ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "${CVCLOUD_INGRESS_SUBNET:?Set unused dedicated subnet}"
+volumes:
+  online_database:
+secrets:
+  bootstrap_password:
+    file: "${CVCLOUD_BOOTSTRAP_SECRET_PATH:?Set protected bootstrap secret path}"
+  schema_password:
+    file: "${CVCLOUD_SCHEMA_SECRET_PATH:?Set protected schema secret path}"
+  auth_password:
+    file: "${CVCLOUD_AUTH_SECRET_PATH:?Set protected auth secret path}"
