@@ -59,6 +59,19 @@ class WorkspaceRuntimeTests(unittest.TestCase):
         self.assertIn(b'id="viewJDAnon"',candidate)
         self.assertNotIn(b'id="viewCompany"',candidate)
 
+    def test_online_candidate_preserves_original_tabs_as_locked(self):
+        from lxml import html
+        from cloud.frontend.shell import ROOT
+        original=html.parse(str(ROOT/"index.html")).getroot()
+        page=html.fromstring(render_shell(online_candidate=True,enable_batch=True,enable_scoring=True,enable_blind_jd=True))
+        ids=lambda doc:[n.get("id") for n in doc.xpath(".//*[@id='pageTabs']/button") if (n.get("id") or "").startswith("tab")]
+        self.assertEqual(ids(page),ids(original))
+        for key in ("Summary","JACreate","Company","TheOwl","JAUpload","OneNote"):
+            tab=page.xpath(".//*[@id=$key]",key="tab"+key)[0]
+            self.assertEqual(tab.get("disabled"),"disabled")
+            self.assertIn("Locked",tab.text_content())
+            self.assertFalse(page.xpath(".//*[@id=$key]",key="view"+key))
+
     def test_candidate_ui_does_not_enable_unverified_modules(self):
         self.assertIn(b"Cloud staging",render_shell())
         candidate=render_shell(online_candidate=True,enable_scoring=True,enable_batch=True)
