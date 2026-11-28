@@ -48,7 +48,7 @@ def assemble_workspace(*, config, auth_connect, document_connect,
         provider_admin=provider,
         enable_scoring=True,
     )
-    register_existing_ui(app, enable_batch=True)
+    register_existing_ui(app, enable_batch=True, online_candidate=True)
     app.wsgi_app = TrustedProxyOnly(app.wsgi_app, config.proxy_ip)
     # Existing readiness stays 503 until the deployment root proves all gates.
     return app
