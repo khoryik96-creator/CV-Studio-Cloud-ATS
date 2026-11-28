@@ -123,7 +123,7 @@ window.CVCloudReports = Object.freeze({
           const input=text||(company?null:file);
           const identifiers=company?[]:[el("anonCompanyName").value.trim(),...lines(el("cloudJDIdentifiers").value)].filter(Boolean);
           if(!input||(!company&&!identifiers.length)){
-            status.textContent=company?"Enter the fictional company name.":"Supply the JD and an employer identifier.";
+            status.textContent=company?"Enter the company name.":"Supply the JD and an employer identifier.";
             return;
           }
           const params=company?{...selected}:{identifiers,technologies:lines(el("cloudJDTechnologies").value)};
@@ -144,7 +144,7 @@ window.CVCloudReports = Object.freeze({
           button.textContent="Retry submission";
         }else{
           intent=null;
-          status.textContent="Submission failed. Check the fictional inputs and try again.";
+          status.textContent="Submission failed. Check the inputs and try again.";
           button.textContent=runLabel;
         }
       }finally{

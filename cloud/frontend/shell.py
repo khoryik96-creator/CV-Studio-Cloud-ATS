@@ -103,7 +103,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
     # Pending modules are visible but disabled, not loaded as desktop scripts.
     if type(online_candidate) is not bool:
         raise ValueError('Invalid UI mode')
-    if online_candidate and (enable_reports or enable_profile):
+    if online_candidate and enable_profile:
         raise ValueError('Unverified research and CRM modules must remain disabled')
     shell=html.fromstring("""<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV Studio Cloud</title><link rel="stylesheet" href="/cloud-ui/assets/app.css"><script src="/cloud-ui/assets/cv_client.js" defer></script><script src="/cloud-ui/assets/existing_cv_controls.js" defer></script><script src="/cloud-ui/assets/bootstrap.js" defer></script></head><body><div class="app"><div class="header"><div><h1>CV Studio</h1><p>Cloud staging · fictional documents only</p></div><button id="cloudLogout" class="sec" type="button" style="display:none" hidden>Sign out</button></div><section class="card" id="cloudLoginPanel"><div class="card-head"><h2>Sign in</h2></div><div class="card-body"><form id="cloudLogin" method="post" action="/cloud-ui"><label>Organisation <input name="tenant" required autocomplete="organization" maxlength="63"></label><label>Email <input name="email" required type="email" autocomplete="username" maxlength="254"></label><label>Password <input name="password" required type="password" autocomplete="current-password" maxlength="256"></label><button type="submit" class="primary">Sign in</button></form></div></section><p id="cloudMessage" role="status" aria-live="polite"></p><div id="cloudContent" style="display:none"><div class="card" id="cloudJobOptions"><div class="card-body"><div class="btn-row"><label>CV alignment <select id="cloudAlignment"><option value="left">Left</option><option value="justify">Justify</option></select></label><label><input type="checkbox" id="cloudLanguage"> Correct spelling and grammar</label><label><input type="checkbox" id="cloudNeutral"> Gender-neutral blinded CV</label></div><p>Word download is available after processing. Structured preview, summary, batch and other module integration are pending.</p><div class="btn-row"><button class="sec" type="button" id="cloudRefresh">Refresh job status</button><button class="sec" type="button" id="cloudRecover">Recover unconfirmed submission</button></div></div></div></div></div></body></html>""")
     if online_candidate:
@@ -184,7 +184,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
             view = deepcopy(_one(source, "view" + key))
             is_company = key == "Company"
             heading = view.xpath(".//div[@class='card-head']")[0]
-            heading[1].text = ("Generate a profile from fictional research sources" if is_company
+            heading[1].text = (("Generate a profile from operator-approved research excerpts" if online_candidate else "Generate a profile from fictional research sources") if is_company
                                else "Remove employer identifiers and review the rewritten JD")
             quick = _one(view, "companyAiQuickHint" if is_company else "jdAnonAiQuickHint").getparent().getparent()
             quick.getparent().remove(quick)

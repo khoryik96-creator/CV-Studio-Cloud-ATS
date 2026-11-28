@@ -64,9 +64,11 @@ class WorkspaceRuntimeTests(unittest.TestCase):
         candidate=render_shell(online_candidate=True,enable_scoring=True,enable_batch=True)
         self.assertIn(b"Online workspace candidate",candidate)
         self.assertNotIn(b"Cloud staging",candidate)
-        for option in ("enable_profile","enable_reports"):
-            with self.assertRaises(ValueError):
-                render_shell(online_candidate=True,**{option:True})
+        with self.assertRaises(ValueError):
+            render_shell(online_candidate=True,enable_profile=True)
+        research=render_shell(online_candidate=True,enable_reports=True)
+        self.assertIn(b"operator-approved research excerpts",research)
+        self.assertNotIn(b"fictional research sources",research)
 
 if __name__=="__main__":
     unittest.main()

@@ -87,6 +87,9 @@ class WorkspacePostgresTest(unittest.TestCase):
             from cloud.deploy.workspace_budget import change_limit
             install_reports(owner)
             install_reports(owner)
+            from cloud.deploy.workspace_crm_install import install as install_crm
+            install_crm(owner)
+            install_crm(owner)
             for role,statement in ((ROLES["document"],"UPDATE cvcloud.jobs SET report_result=NULL"),(ROLES["worker"],"UPDATE cvcloud.jobs SET report_options=NULL")):
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     with connect(role) as conn:
@@ -152,6 +155,9 @@ class WorkspacePostgresTest(unittest.TestCase):
                 verify_worker_acceptance(self,principal=a,other=b,storage_root=Path(tmp).resolve(),
                     document_connect=lambda:connect(ROLES["document"]),worker_connect=lambda:connect(ROLES["worker"]),
                     provider_connect=lambda:connect(ROLES["provider_reader"]),cipher=cipher,catalogue=catalogue,policy=policy)
+                from tests.cloud_online_crm_journal_acceptance import verify_crm_journal,verify_sandbox_service
+                verify_crm_journal(self,principal=a,other=b,document_repository=doc,worker_repository=worker,document_id=document)
+                verify_sandbox_service(self,principal=a,other=b,document_repository=doc,worker_repository=worker,storage_root=Path(tmp).resolve())
             self.assertTrue(web_config.disable(a,expected_revision=1).enabled is False)
         finally:
             try:

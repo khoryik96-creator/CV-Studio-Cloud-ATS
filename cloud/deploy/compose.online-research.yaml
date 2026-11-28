@@ -1,0 +1,14 @@
+# Optional curated research only. No network or credential changes.
+# Use alongside compose.online-workspace.yaml, not by itself.
+services:
+  web:
+    environment:
+      CVCLOUD_RESEARCH_CATALOGUE_FILE: /run/secrets/research_catalogue
+    secrets: [research_catalogue]
+  worker:
+    environment:
+      CVCLOUD_RESEARCH_CATALOGUE_FILE: /run/secrets/research_catalogue
+    secrets: [research_catalogue]
+secrets:
+  research_catalogue:
+    file: "${CVCLOUD_RESEARCH_CATALOGUE_PATH:?Set reviewed tenant-scoped research file}"

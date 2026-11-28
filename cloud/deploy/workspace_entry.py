@@ -7,6 +7,8 @@ from threading import Event
 from cloud.deploy.online_auth import read_config,connection_factory
 from cloud.deploy.online_serve import server_options
 from cloud.deploy.online_workspace import assemble_workspace,assemble_worker
+import os
+from cloud.deploy.workspace_research import load_research
 from cloud.deploy.workspace_config import load_policy,service_connection,concurrency,require_live_worker_approval
 from cloud.deploy.workspace_heartbeat import Heartbeat
 from cloud.deploy.workspace_scheduler import WorkspaceScheduler
@@ -34,10 +36,11 @@ def build_web():
     auth_connect=connection_factory(config)
     document_connect=startup_step("document-credentials",lambda:service_connection("document"))
     provider_connect=startup_step("provider-credentials",lambda:service_connection("provider"))
+    research=startup_step("research-catalogue",load_research) if os.environ.get("CVCLOUD_RESEARCH_CATALOGUE_FILE") else None
     admin_connect=startup_step("admin-credentials",lambda:service_connection("admin"))
     return startup_step("workspace-composition",lambda:assemble_workspace(
         config=config,auth_connect=auth_connect,document_connect=document_connect,
-        provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue,enable_blind_jd=True))
+        provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue,enable_blind_jd=True,enable_company_profile=research is not None))
 
 def web():
     from waitress import serve
@@ -58,6 +61,7 @@ def worker():
     signal.signal(signal.SIGINT,request_stop)
     with Heartbeat() as heartbeat:
         cipher,catalogue=load_policy()
+        research=load_research() if os.environ.get("CVCLOUD_RESEARCH_CATALOGUE_FILE") else None
         PrivateStorage(STORAGE)
         worker_connect=service_connection("worker")
         provider_connect=service_connection("provider_reader")
@@ -66,7 +70,7 @@ def worker():
             verify_service_role(connect,service)
         factory=partial(assemble_worker,worker_connect=worker_connect,
             provider_connect=provider_connect,storage_root=STORAGE,cipher=cipher,
-            catalogue=catalogue,concurrency=concurrency(),enable_blind_jd=True)
+            catalogue=catalogue,concurrency=concurrency(),enable_blind_jd=True,tenant_research=research)
         scheduler=WorkspaceScheduler(scheduler_connect=scheduler_connect,
             runtime_factory=lambda principals:factory(principals=principals))
         while not stop.is_set():
