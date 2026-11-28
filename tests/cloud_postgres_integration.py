@@ -471,6 +471,12 @@ class TestPostgres(unittest.TestCase):
                 with page.expect_download() as batch_download:
                     page.locator("#batchFileList button").first.click()
                 self.assertTrue(batch_download.value.suggested_filename.startswith("cv-01"))
+                with page.expect_download(lambda item: item.suggested_filename.startswith("cv-01")) as first:
+                    with page.expect_download(lambda item: item.suggested_filename.startswith("cv-02")) as second:
+                        page.locator("#btnBatchDownload").click()
+                self.assertTrue(first.value.suggested_filename.endswith(".docx"))
+                self.assertTrue(second.value.suggested_filename.endswith(".docx"))
+                expect(page.locator("#batchSummary")).to_contain_text("2 / 2 downloads started.")
                 page.locator("#cloudLogout").click()
                 expect(page.locator("#cloudLoginPanel")).to_be_visible()
                 expect(page.locator("#batchFileList .batch-file-item")).to_have_count(0)

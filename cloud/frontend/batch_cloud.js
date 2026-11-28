@@ -72,29 +72,53 @@
        }
      }finally{refreshing=false;}
    }
+   const downloadable=row=>row?.jobId&&["succeeded","needs_review"].includes(row.state);
+   async function saveRow(row,index,save){
+     const result=await client.download(row.jobId,{review:row.state==="needs_review",signal:life.signal});
+     if(!closed){
+       await save({...result,filename:"cv-"+String(index+1).padStart(2,"0")+(result.requiresReview?"-review":"")+".docx"});
+       return true;
+     }
+     return false;
+   }
    async function download(index,confirmReview,save){
      const row=rows[index];
-     if(closed||busy||!row?.jobId||!["succeeded","needs_review"].includes(row.state))return;
+     if(closed||busy||!downloadable(row))return;
      busy=true;notify();
      try{
-       const review=row.state==="needs_review";
-       if(review&&(await confirmReview())!==true)return;
-       if(closed)return;
-       const result=await client.download(row.jobId,{review,signal:life.signal});
-       if(!closed)await save({...result,filename:"cv-"+String(index+1).padStart(2,"0")+(result.requiresReview?"-review":"")+".docx"});
+       if(row.state==="needs_review"&&(await confirmReview())!==true)return;
+       if(!closed)await saveRow(row,index,save);
+     }finally{busy=false;notify();}
+   }
+   async function downloadAll(confirmReview,save){
+     const selected=rows.map((row,index)=>({row,index})).filter(({row})=>downloadable(row));
+     if(closed||busy||!selected.length)return;
+     busy=true;notify();
+     try{
+       if(selected.some(({row})=>row.state==="needs_review")&&(await confirmReview())!==true)return;
+       let started=0,failed=0;
+       for(const {row,index} of selected){
+         if(closed)break;
+         try{if(await saveRow(row,index,save))started++;}
+         catch(error){
+           if(closed||error.code==="authentication_required"||error.code==="stale_session")break;
+           failed++;
+         }
+       }
+       return {started,failed,total:selected.length};
      }finally{busy=false;notify();}
    }
    function clear(){
      if(closed||busy||refreshing||rows.some(x=>!TERMINAL.has(x.state)&&x.state!=="ready"))return false;
      rows=[];notify();return true;
    }
-   return {select,start,recover,refresh,download,clear,snapshot,isBusy:()=>busy,dispose(){closed=true;life.abort();rows=[];}};
+   return {select,start,recover,refresh,download,downloadAll,clear,snapshot,isBusy:()=>busy,dispose(){closed=true;life.abort();rows=[];}};
  }
  function bind({document,client,readOptions,confirmReview,saveDocument}){
    const el=id=>document.getElementById(id);
    const input=el("batchFileInput"),drop=el("batchDropZone"),list=el("batchFileList"),run=el("btnBatchRun"),clear=el("cloudBatchClear"),summary=el("batchSummary"),format=el("batchTabFormat"),blind=el("batchTabBlind"),panel=el("batchControls");
    if([input,drop,list,run,clear,summary,format,blind,panel].some(x=>!x))throw Error("Batch controls missing");
-   const timer=el("batchTimer");
+   const timer=el("batchTimer"),downloadAll=el("btnBatchDownload");
    let module="cv_formatting",disposed=false,notice="",startedAt=null,timerId=null;
    function renderTime(){
      if(startedAt!==null)timer.textContent=((performance.now()-startedAt)/1000).toFixed(1)+"s";
@@ -130,6 +154,7 @@
      summary.textContent=notice||rows.filter(x=>TERMINAL.has(x.state)).length+" / "+rows.length+" finished";
      run.disabled=busy||!rows.some(x=>x.state==="ready")||rows.some(x=>["upload_unconfirmed","preparation_failed","submit_unconfirmed"].includes(x.state));
      run.textContent=rows.some(x=>x.state!=="ready")?"Continue remaining files":"Start Processing";
+     if(downloadAll)downloadAll.disabled=busy||!rows.some(row=>["succeeded","needs_review"].includes(row.state));
      clear.disabled=busy||rows.some(x=>!TERMINAL.has(x.state)&&x.state!=="ready");
      input.disabled=busy||rows.length>0;
      format.disabled=blind.disabled=busy||rows.some(x=>x.state!=="ready");
@@ -150,6 +175,17 @@
        timerId=setInterval(renderTime,100);
      }
      try{await core.start(module,readOptions(module));}catch{notice="Batch interrupted; check each row.";render();}});
+   if(downloadAll)on(downloadAll,"click",async()=>{
+     notice="";
+     try{
+       const result=await core.downloadAll(confirmReview,saveDocument);
+       if(result){
+         notice=result.started+" / "+result.total+" downloads started.";
+         if(result.failed)notice+=" "+result.failed+" could not be retrieved.";
+       }
+     }catch{notice="Batch download could not be started.";}
+     render();
+   });
    on(clear,"click",()=>{notice="";core.clear();render();});
    render();
    return {refresh:core.refresh,dispose(){disposed=true;stopTimer();if(timer){timer.textContent="";timer.style.display="none";}core.dispose();for(const [n,e,f] of listeners)n.removeEventListener(e,f);input.value="";input.disabled=true;list.textContent="";summary.textContent="";panel.style.display="none";}};
