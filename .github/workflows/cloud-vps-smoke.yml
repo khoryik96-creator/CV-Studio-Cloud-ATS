@@ -2,15 +2,36 @@ name: Cloud VPS container smoke
 on:
   push:
     branches: [master]
-    paths: ['cloud/**', '.github/workflows/cloud-vps-smoke.yml']
+    tags: ['**']
   pull_request:
     branches: [master]
-    paths: ['cloud/**', '.github/workflows/cloud-vps-smoke.yml']
   workflow_dispatch:
+
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  scope:
+    name: Determine test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify scope policy
+        run: python3 .github/ci_scope.py --self-test
+      - id: scope
+        run: python3 .github/ci_scope.py
+
   health-container:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'docs')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -18,6 +39,8 @@ jobs:
       - run: sh -n cloud/deploy/smoke.sh
       - run: sh cloud/deploy/smoke.sh
   online-auth-container:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'docs')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

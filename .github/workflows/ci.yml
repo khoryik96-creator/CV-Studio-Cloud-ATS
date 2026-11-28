@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+    tags: ['**']
   pull_request:
     branches:
       - master
@@ -17,7 +18,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: Determine test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify scope policy
+        run: python3 .github/ci_scope.py --self-test
+      - id: scope
+        run: python3 .github/ci_scope.py
+
   regression:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'cloud' && needs.scope.outputs.scope != 'online' && needs.scope.outputs.scope != 'docs')) }}
     name: Windows x64 regression
     runs-on: windows-latest
     timeout-minutes: 30
@@ -144,6 +162,8 @@ jobs:
           git diff --check
 
   macos-native-dependencies:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'cloud' && needs.scope.outputs.scope != 'online' && needs.scope.outputs.scope != 'docs')) }}
     name: ${{ matrix.name }} dependencies
     strategy:
       fail-fast: false
