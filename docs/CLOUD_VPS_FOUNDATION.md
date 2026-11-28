@@ -2,7 +2,7 @@
 This is a deliberately restricted infrastructure smoke target, not staging of the full CV Studio product. The container packages only the default cloud app and its auth policy import. No credentials, DB, worker, data volumes, real accounts, document routes, provider calls, or desktop modules are included. The application must return 503 at /readyz. Do not attach a reverse proxy or public domain to this target.
 
 ## Test on a disposable Linux Docker host
-From the repository root, with Docker Engine, Compose v2 supporting --wait and curl installed:
+From the repository root, with Docker Engine, Compose v2 supporting --wait Python 3 and curl installed:
 ```sh
 sh cloud/deploy/smoke.sh
 ```
