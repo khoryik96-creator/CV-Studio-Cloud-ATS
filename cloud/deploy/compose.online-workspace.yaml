@@ -77,6 +77,25 @@ services:
     networks: [database]
     depends_on:
       grant-install: {condition: service_completed_successfully}
+  report-install:
+    <<: *app
+    command: ["python","-m","cloud.deploy.workspace_report_install"]
+    environment:
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+    secrets: [schema_password]
+    networks: [database]
+    depends_on:
+      admin-install: {condition: service_completed_successfully}
+  budget:
+    <<: *app
+    profiles: [operator]
+    entrypoint: ["python","-m","cloud.deploy.workspace_budget"]
+    environment:
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+    secrets: [schema_password]
+    networks: [database]
+    depends_on:
+      report-install: {condition: service_completed_successfully}
   web:
     <<: *app
     command: ["python","-m","cloud.deploy.workspace_entry","web"]
@@ -93,7 +112,7 @@ services:
     networks: [database,ingress]
     volumes: [workspace_documents:/srv/cvcloud/data]
     depends_on:
-      admin-install: {condition: service_completed_successfully}
+      report-install: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD","python","-m","cloud.deploy.workspace_check"]
       interval: 15s
@@ -117,7 +136,7 @@ services:
     restart: "no"
     stop_grace_period: 11m
     depends_on:
-      grant-install: {condition: service_completed_successfully}
+      report-install: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD","python","-m","cloud.deploy.workspace_heartbeat"]
       interval: 10s
