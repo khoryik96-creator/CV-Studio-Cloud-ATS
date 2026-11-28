@@ -1,0 +1,3 @@
+# M3 Blind JD
+
+Internal server-side contract ported from PR #13. Explicit employer identifiers, technology-preservation list, bounded output, contact and employer checks, and mandatory human review. Detection normalizes compatibility characters, whitespace and invisible formatting characters without changing output. Technologies must match individual source and output terms; separate list items cannot satisfy a multiword technology. Conservative checks can produce false positives and do not guarantee anonymisation or requirement fidelity. Aliases, indirect identifiers, proprietary technologies and scale generalisation need further review. No provider calls, routes, persistence or UI are enabled.
