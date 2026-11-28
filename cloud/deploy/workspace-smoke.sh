@@ -15,7 +15,7 @@ export CVCLOUD_PUBLIC_ORIGIN=https://cvstudio.hyplug.co
 export CVCLOUD_INGRESS_SUBNET=172.29.68.0/24
 export CVCLOUD_TRUSTED_PROXY_IP=172.29.68.10
 export CVCLOUD_LIVE_AI=disabled
-for role in BOOTSTRAP SCHEMA AUTH DOCUMENT PROVIDER WORKER PROVIDER_READER SCHEDULER; do
+for role in BOOTSTRAP SCHEMA AUTH DOCUMENT PROVIDER WORKER PROVIDER_READER SCHEDULER ADMIN; do
     file="$secret_dir/$role"
     python3 -c 'import secrets; print(secrets.token_hex(32))' > "$file"
     chmod 0444 "$file"
@@ -41,7 +41,7 @@ cleanup() {
     if [ "$result" -ne 0 ]; then
         # This script runs only on disposable CI with synthetic credentials.
         compose ps -a || true
-        compose logs --no-color --tail=80 initialize migrate grant-install web || true
+        compose logs --no-color --tail=80 initialize migrate grant-install admin-install web || true
     fi
     compose down --remove-orphans --volumes >/dev/null 2>&1 || true
     rm -rf "$secret_dir"
@@ -83,5 +83,9 @@ status,_,body=req("POST","/api/documents",headers,b"Fictional workspace candidat
 assert status==201 and json.loads(body)["document_id"]
 status,_,body=req("GET","/api/documents",headers)
 assert status==200 and len(json.loads(body)["items"])==1
+status,_,body=req("GET","/api/admin/accounts",headers)
+assert status==200 and len(json.loads(body)["items"])==1
+status,_,body=req("GET","/api/admin/ai-usage",headers)
+assert status==200 and json.loads(body)=={"configured":False}
 '
 echo "Internal online workspace startup and authenticated UI passed. Live worker remains disabled."
