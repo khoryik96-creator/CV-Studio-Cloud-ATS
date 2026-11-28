@@ -85,3 +85,33 @@ volumes and secrets. No down -v, system prune or shared proxy changes.
 
 No actual VPS deployment, DNS edit, provider request or live candidate
 operation has been performed by this PR.
+
+## Worker cutover for the existing gated pilot
+
+Use this only for the existing `cvcloud-private-pilot` project after recording its deployed revision, verifying backups and checking the reviewed checkout against its database schema. Keep the outer access gate in place. Configure a separately approved DeepSeek model, verified pricing, encrypted provider credentials and a pilot spending cap before starting the worker. Use fictional documents for initial verification.
+
+The optional egress overlay joins only the worker to an outbound bridge. The application transport uses the fixed DeepSeek TLS endpoint and refuses redirects. The bridge itself is not a network-level destination allowlist. Verify applicable VPS egress policy before attaching it.
+
+From the reviewed pilot checkout, use the protected existing environment file and these project-scoped commands:
+
+```sh
+compose_worker() {
+  docker compose --env-file /opt/cvstudio-pilot-secrets/pilot.env \
+    -p cvcloud-private-pilot \
+    -f cloud/deploy/compose.online-workspace.yaml \
+    -f cloud/deploy/compose.online-worker-egress.yaml "$@"
+}
+compose_worker config --quiet
+compose_worker build worker
+```
+
+Record a fixed UTC instant in the protected pilot environment as `CVCLOUD_WORKER_ADMIT_AFTER` using `YYYY-MM-DDTHH:MM:SSZ`. The worker claims only jobs created strictly after that instant. Keep this value fixed across restarts. Old queued jobs are preserved for a separate decision. Check for any candidate data queued between the chosen cutoff and the initial smoke test.
+
+After confirming the existing database and web dependencies are healthy, start only the worker. The shell override applies the approval to this command without printing credentials:
+
+```sh
+CVCLOUD_LIVE_AI=operator-approved compose_worker up --no-deps --no-build -d --wait worker
+compose_worker ps worker
+```
+
+Submit a new fictional job and verify the output. For rollback use `compose_worker stop worker`. The web service, outer access gate and database are outside the worker start and stop commands.

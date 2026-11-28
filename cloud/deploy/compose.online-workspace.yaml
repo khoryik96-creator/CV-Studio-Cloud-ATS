@@ -124,6 +124,7 @@ services:
     command: ["python","-m","cloud.deploy.workspace_entry","worker"]
     environment:
       CVCLOUD_LIVE_AI: "${CVCLOUD_LIVE_AI:-disabled}"
+      CVCLOUD_WORKER_ADMIT_AFTER: "${CVCLOUD_WORKER_ADMIT_AFTER:-}"
       CVCLOUD_WORKER_CONCURRENCY: "${CVCLOUD_WORKER_CONCURRENCY:-2}"
       CVCLOUD_WORKER_PASSWORD_FILE: /run/secrets/worker_password
       CVCLOUD_PROVIDER_READER_PASSWORD_FILE: /run/secrets/provider_reader_password
