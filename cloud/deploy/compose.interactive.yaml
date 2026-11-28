@@ -1,0 +1,75 @@
+# Local, fictional-only staging. Never run on a shared/production host.
+x-fixture: &fixture
+  build:
+    context: ../..
+    dockerfile: cloud/deploy/Dockerfile.fixture
+  image: cvcloud-fixture:local
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  networks: [fixture]
+  mem_limit: 1024m
+  cpus: 2
+  pids_limit: 128
+x-runtime: &runtime
+  CVCLOUD_TEST_RUNTIME_DSN: postgresql://cvcloud_runtime:synthetic-runtime-only@db:5432/cvcloud_test
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: synthetic-ci-only
+      POSTGRES_DB: cvcloud_test
+    volumes:
+      - database:/var/lib/postgresql/data
+    networks: [fixture]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "cvcloud_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1
+  seed:
+    <<: *fixture
+    command: ["python","-m","cloud.deploy.interactive","seed"]
+    environment:
+      CVCLOUD_TEST_DSN: postgresql://postgres:synthetic-ci-only@db:5432/cvcloud_test
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    <<: *fixture
+    command: ["python","-m","cloud.deploy.interactive","web"]
+    environment: *runtime
+    volumes:
+      - documents:/srv/cvcloud/data
+    networks:
+      fixture:
+        aliases: [cv.example.test]
+    ports:
+      - "127.0.0.1:443:8443"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD","python","-m","cloud.deploy.interactive_check","health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  worker:
+    <<: *fixture
+    command: ["python","-m","cloud.deploy.interactive","worker"]
+    environment: *runtime
+    volumes:
+      - documents:/srv/cvcloud/data
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+networks:
+  fixture:
+    internal: true
+volumes:
+  database:
+  documents:
