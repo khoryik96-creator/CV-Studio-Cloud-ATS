@@ -74,5 +74,38 @@ class WorkspaceTests(unittest.TestCase):
             assemble_worker(worker_connect=connection,provider_connect=connection,storage_root=None,
                 cipher=None,catalogue=None,principals=[])
 
+    def test_scheduler_reuses_runtime_and_stops_on_roster_failure(self):
+        from unittest.mock import Mock
+        from cloud.auth import Principal
+        from cloud.deploy.workspace_scheduler import WorkspaceScheduler
+        roster=(Principal(str(uuid4()),str(uuid4()),"owner",""),)
+        runtime=Mock()
+        runtime.tick.return_value=("idle",)
+        factory=Mock(return_value=runtime)
+        scheduler=WorkspaceScheduler(scheduler_connect=lambda:None,runtime_factory=factory)
+        with patch("cloud.deploy.workspace_scheduler.discover_roster",side_effect=[roster,roster,RuntimeError("db unavailable"),()]):
+            self.assertEqual(scheduler.tick(),("idle",))
+            self.assertEqual(scheduler.tick(),("idle",))
+            factory.assert_called_once_with(roster)
+            with self.assertRaises(RuntimeError):
+                scheduler.tick()
+            self.assertEqual(runtime.tick.call_count,2)
+            self.assertEqual(scheduler.tick(),())
+
+    def test_scheduler_honors_cooperative_stop(self):
+        from threading import Event
+        from unittest.mock import Mock
+        from cloud.deploy.workspace_scheduler import WorkspaceScheduler
+        stop=Event()
+        scheduler=WorkspaceScheduler(scheduler_connect=lambda:None,runtime_factory=Mock())
+        statuses=[]
+        def on_round(status):
+            statuses.append(status)
+            stop.set()
+        with patch("cloud.deploy.workspace_scheduler.discover_roster",return_value=()) as discover:
+            scheduler.run(stop,on_round=on_round)
+            discover.assert_called_once()
+        self.assertEqual(statuses,["ok"])
+
 if __name__=="__main__":
     unittest.main()
