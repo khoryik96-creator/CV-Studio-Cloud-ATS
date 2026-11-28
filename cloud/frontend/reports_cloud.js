@@ -194,6 +194,8 @@ window.CVCloudReports = Object.freeze({
     el("cloudLoad"+key).addEventListener("click",async()=>{
       if(!select.value)return;
       current=select.value;
+      completed=null;
+      status.textContent="Loading report…";
       clearResult();
       try{await refresh(true);}catch{status.textContent="Sign in again to load the report.";}
     },options);
