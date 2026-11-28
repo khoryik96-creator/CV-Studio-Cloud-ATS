@@ -2,6 +2,7 @@
 import argparse
 from functools import partial
 import signal
+import sys
 from threading import Event
 from cloud.deploy.online_auth import read_config,connection_factory
 from cloud.deploy.online_serve import server_options
@@ -15,18 +16,36 @@ from cloud.documents_jobs import MAX_BYTES
 
 STORAGE="/srv/cvcloud/data"
 
+class StartupError(RuntimeError):
+    pass
+
+def startup_step(label, callback):
+    try:
+        return callback()
+    except Exception as error:
+        # Fixed stage and exception class only; never include DSN, file
+        # contents, credentials, candidate data or arbitrary exception text.
+        print("Workspace startup failed:",label,type(error).__name__,file=sys.stderr,flush=True)
+        raise StartupError("Workspace startup failed") from None
+
+def build_web():
+    config=startup_step("auth-config",read_config)
+    cipher,catalogue=startup_step("provider-policy",load_policy)
+    auth_connect=connection_factory(config)
+    document_connect=startup_step("document-credentials",lambda:service_connection("document"))
+    provider_connect=startup_step("provider-credentials",lambda:service_connection("provider"))
+    return startup_step("workspace-composition",lambda:assemble_workspace(
+        config=config,auth_connect=auth_connect,document_connect=document_connect,
+        provider_connect=provider_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue))
+
 def web():
     from waitress import serve
-    config=read_config()
-    cipher,catalogue=load_policy()
-    app=assemble_workspace(config=config,auth_connect=connection_factory(config),
-        document_connect=service_connection("document"),provider_connect=service_connection("provider"),
-        storage_root=STORAGE,cipher=cipher,catalogue=catalogue)
+    app=build_web()
     options=server_options()
     options["max_request_body_size"]=MAX_BYTES
     # Keep bounded threads and no forwarded header rewriting. Flask login
     # still imposes the original 4 KiB limit on authentication requests.
-    serve(app,host="0.0.0.0",port=8000,**options)
+    startup_step("listener",lambda:serve(app,host="0.0.0.0",port=8000,**options))
 
 def worker():
     # No paid requests or queue claims without a separate explicit live gate.
