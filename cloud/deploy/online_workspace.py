@@ -4,12 +4,10 @@ This is not a public deployment entry point. The caller must supply dedicated,
 verified database roles and operator-approved model policy. Do not start a
 listener or worker from this module. No synthetic providers are selected.
 """
-from cloud.account_admin import AccountAdmin
 from cloud.ai_budget import AIBudget
-from cloud.ai_usage import AIUsage
 from cloud.app import create_app
 from cloud.deploy.online_auth import DedicatedAuthStore, TrustedProxyOnly, verify_database
-from cloud.documents_jobs import DocumentJobs
+from cloud.deploy.workspace_repository import OnlineDocumentJobs
 from cloud.frontend.shell import register_existing_ui
 from cloud.job_outputs import JobOutputs
 from cloud.private_storage import PrivateStorage
@@ -21,25 +19,26 @@ from cloud.deploy.workspace_roles import verify_service_role
 
 
 def assemble_workspace(*, config, auth_connect, document_connect,
-                       admin_connect, provider_connect, storage_root,
-                       cipher, catalogue):
+                       provider_connect, storage_root,
+                       cipher, catalogue, admin_connect=None):
     """Build internal web candidate for formatting, blinding and scoring.
 
     Connections are transaction factories supplied by a future verified
     deployment root. In particular, the authentication-only role must not be
     used for document or administration operations. Provider configuration
-    receives its own connection factory. No JobAdder or research adapter is
-    enabled until its real integration has passed acceptance.
+    receives its own write-only credential connection factory. Account admin,
+    usage, JobAdder and research adapters remain disabled until reviewed.
     """
-    factories = (auth_connect, document_connect, admin_connect, provider_connect)
+    if admin_connect is not None:
+        raise ValueError("Account administration requires separate reviewed grants")
+    factories = (auth_connect, document_connect, provider_connect)
     if not all(callable(f) for f in factories) or len({id(f) for f in factories}) != len(factories):
         raise ValueError("Separate database connection factories required")
     verify_database(auth_connect)
-    for service, connect in (("document", document_connect), ("admin", admin_connect), ("provider", provider_connect)):
+    for service, connect in (("document", document_connect), ("provider", provider_connect)):
         verify_service_role(connect, service)
-    documents = DocumentJobs(document_connect)
-    admin = DocumentJobs(admin_connect)
-    provider = ProviderConfig(DocumentJobs(provider_connect), cipher, catalogue)
+    documents = OnlineDocumentJobs(document_connect)
+    provider = ProviderConfig(OnlineDocumentJobs(provider_connect), cipher, catalogue)
     storage = PrivateStorage(storage_root)
     app = create_app(
         auth_store=DedicatedAuthStore(auth_connect),
@@ -47,8 +46,6 @@ def assemble_workspace(*, config, auth_connect, document_connect,
         cv_services=(UploadService(documents, storage), documents,
                      JobOutputs(documents, storage)),
         provider_admin=provider,
-        account_admin=AccountAdmin(admin),
-        ai_usage=AIUsage(admin),
         enable_scoring=True,
     )
     register_existing_ui(app, enable_batch=True)
@@ -63,10 +60,10 @@ def assemble_worker(*, worker_connect, provider_connect, storage_root,
     if not callable(worker_connect) or not callable(provider_connect) or worker_connect is provider_connect:
         raise ValueError("Separate worker and provider connections required")
     verify_service_role(worker_connect, "worker")
-    verify_service_role(provider_connect, "provider")
-    documents = DocumentJobs(worker_connect)
+    verify_service_role(provider_connect, "provider_reader")
+    documents = OnlineDocumentJobs(worker_connect)
     storage = PrivateStorage(storage_root)
-    provider = ProviderConfig(DocumentJobs(provider_connect), cipher, catalogue)
+    provider = ProviderConfig(OnlineDocumentJobs(provider_connect), cipher, catalogue)
     return WorkerRuntime(
         principals=principals,
         repository=documents,
