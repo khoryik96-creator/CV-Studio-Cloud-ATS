@@ -76,3 +76,8 @@ compose restart web
 compose up -d --no-build --wait --wait-timeout 120 web
 probe
 echo "Isolated online auth Compose smoke passed; production remains disabled."
+
+# Reuse this existing CI job instead of creating another workflow.
+cleanup
+trap - EXIT HUP INT TERM
+sh ./workspace-smoke.sh
