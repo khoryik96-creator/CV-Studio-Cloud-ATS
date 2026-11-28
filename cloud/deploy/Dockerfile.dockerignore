@@ -1,0 +1,8 @@
+**
+!cloud/
+!cloud/__init__.py
+!cloud/app.py
+!cloud/auth.py
+!cloud/deploy/
+!cloud/deploy/Dockerfile
+!cloud/deploy/requirements-health.txt
