@@ -147,9 +147,9 @@
       return Object.freeze({document_id:id(documentId),options,idempotency_key:id(uuid())});
     }
     async function submitReport(module,intent,{signal}={}){
-      const value=await json(reportPath(module),{expected:active(),method:"POST",write:true,signal,
+      const value=await json(reportPath(module),{expected:active(),method:"POST",write:true,signal,preserveIntent:true,
         contentType:"application/json",body:JSON.stringify(intent)});
-      return id(value.job_id);
+      return submittedId(value.job_id);
     }
     async function documentReports(module,jobId=null,{signal}={}){
       return json(reportPath(module)+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
