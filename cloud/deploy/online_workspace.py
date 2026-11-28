@@ -17,6 +17,7 @@ from cloud.provider_config import ProviderConfig
 from cloud.upload_service import UploadService
 from cloud.worker_leases import WorkerLeases
 from cloud.worker_runtime import WorkerRuntime
+from cloud.deploy.workspace_roles import verify_service_role
 
 
 def assemble_workspace(*, config, auth_connect, document_connect,
@@ -34,6 +35,8 @@ def assemble_workspace(*, config, auth_connect, document_connect,
     if not all(callable(f) for f in factories) or len({id(f) for f in factories}) != len(factories):
         raise ValueError("Separate database connection factories required")
     verify_database(auth_connect)
+    for service, connect in (("document", document_connect), ("admin", admin_connect), ("provider", provider_connect)):
+        verify_service_role(connect, service)
     documents = DocumentJobs(document_connect)
     admin = DocumentJobs(admin_connect)
     provider = ProviderConfig(DocumentJobs(provider_connect), cipher, catalogue)
@@ -59,6 +62,8 @@ def assemble_worker(*, worker_connect, provider_connect, storage_root,
     """Build a bounded worker without starting it or dispatching AI requests."""
     if not callable(worker_connect) or not callable(provider_connect) or worker_connect is provider_connect:
         raise ValueError("Separate worker and provider connections required")
+    verify_service_role(worker_connect, "worker")
+    verify_service_role(provider_connect, "provider")
     documents = DocumentJobs(worker_connect)
     storage = PrivateStorage(storage_root)
     provider = ProviderConfig(DocumentJobs(provider_connect), cipher, catalogue)
