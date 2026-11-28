@@ -27,7 +27,11 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
     jd_text=extract(jd.encode(),"text/plain").text
     expected=prepare_source(source)
     scoring_system,scoring_user=prepare(cv_text,jd_text,rubric)
-    from cloud.deploy.report_fixtures import COMPANY,completion as report_completion
+    from cloud.deploy.report_fixtures import COMPANY,FACT,SOURCE,completion as report_completion
+    from cloud.deploy.workspace_research import ApprovedResearch
+    research=ApprovedResearch([{"tenant_id":principal.tenant_id,"company_name":COMPANY,
+        "sources":[{"id":SOURCE.id,"title":SOURCE.title,"text":SOURCE.text,
+                    "url":SOURCE.url,"retrieved_on":"2026-01-01"}]}])
     from cloud.document_reports import reports as document_reports
     blind_source=(fixtures/"cloud_cv_blind_jd.txt").read_text(encoding="utf-8")
     blind_text=extract(blind_source.encode(),"text/plain").text
@@ -48,7 +52,7 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
                 return Completion(json.dumps({"assessments":[{"id":"ansible","status":"evidenced",
                     "quote":"Automated recovery checks with Ansible.","note":"Explicit automation evidence."}]}),100,100)
             result=complete_report(system,prompt)
-            calls.append("blind_jd")
+            calls.append("company_profile" if json.loads(prompt).get("company_name") else "blind_jd")
             return result
         return fake
     repository=OnlineDocumentJobs(document_connect)
@@ -60,7 +64,7 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
     cv_id,jd_id=put(source),put(jd)
     runtime=assemble_worker(worker_connect=worker_connect,provider_connect=provider_connect,
         storage_root=storage_root,cipher=cipher,catalogue=catalogue,principals=(principal,),
-        concurrency=1,transport_factory=factory,enable_blind_jd=True)
+        concurrency=1,transport_factory=factory,enable_blind_jd=True,tenant_research=research)
     outputs=JobOutputs(repository,storage)
     for module in ("cv_formatting","cv_blinding","cv_scoring"):
         options={"scoring":(jd_id,rubric)} if module=="cv_scoring" else {}
@@ -90,5 +94,14 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
     test.assertNotIn(COMPANY,json.dumps(report["result"]))
     test.assertIn("Ansible",json.dumps(report["result"]))
     test.assertIsNone(document_reports(repository,other,"blind_jd",job))
-    test.assertEqual(calls,["parse","parse","blind","assess","blind_jd"])
+    company_id=put(COMPANY)
+    job=repository.enqueue(principal,document_id=company_id,module="company_profile",
+        idempotency_key=str(uuid4()),report={"focus":"general","length":"standard","tone":"professional"})
+    test.assertEqual(runtime.tick(),("completed",))
+    report=document_reports(repository,principal,"company_profile",job)
+    test.assertEqual(report["state"],"succeeded")
+    test.assertEqual(report["result"]["claims"][0]["evidence"][0]["quote"],FACT)
+    test.assertEqual(report["result"]["source_verification"],"supplied_excerpts_only")
+    test.assertIsNone(document_reports(repository,other,"company_profile",job))
+    test.assertEqual(calls,["parse","parse","blind","assess","blind_jd","company_profile"])
     test.assertEqual(runtime.tick(),("idle",))
