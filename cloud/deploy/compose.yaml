@@ -1,0 +1,31 @@
+name: cvcloud-health
+services:
+  health:
+    build:
+      context: ../..
+      dockerfile: cloud/deploy/Dockerfile
+    image: cvcloud-health:local
+    ports:
+      - "127.0.0.1:${CVCLOUD_HEALTH_PORT:-18080}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200"]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

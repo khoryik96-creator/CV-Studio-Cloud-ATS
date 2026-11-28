@@ -1,0 +1,66 @@
+name: Cloud CI progress dashboard
+on:
+  workflow_run:
+    workflows: ["CV Studio regression", "Cloud foundation PostgreSQL", "Cloud VPS container smoke"]
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+permissions:
+  actions: read
+  pull-requests: read
+concurrency:
+  group: cvcloud-ci-dashboard
+  cancel-in-progress: true
+jobs:
+  dashboard:
+    # Scheduled polling is opt-in to avoid unexpected private-repository runner usage.
+    if: github.event_name != 'schedule' || vars.CVCLOUD_CI_POLL == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize open PR exact-head workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from urllib.parse import urlencode
+          repo = os.environ["GITHUB_REPOSITORY"]
+          names = ("CV Studio regression", "Cloud foundation PostgreSQL", "Cloud VPS container smoke")
+          def api(path, **query):
+              suffix = "?" + urlencode(query) if query else ""
+              return json.loads(subprocess.check_output(["gh", "api", "/repos/" + repo + path + suffix], timeout=20))
+          prs = api("/pulls", state="open", per_page=100, sort="updated", direction="desc")
+          rows = ["# CV Studio CI checkpoint", "", "UTC: " + datetime.now(timezone.utc).isoformat(),
+                  "", "| PR | Head | Regression | PostgreSQL | VPS smoke |",
+                  "| --- | --- | --- | --- | --- |"]
+          for pr in prs[:30]:
+              number = int(pr["number"])
+              sha = pr["head"]["sha"]
+              result = api("/actions/runs", head_sha=sha, event="pull_request", per_page=100)
+              latest = {}
+              for run in result["workflow_runs"]:
+                  if run["head_sha"] == sha and run["name"] in names:
+                      key = run["name"]
+                      if key not in latest or (run["id"], run.get("run_attempt", 0)) > (latest[key]["id"], latest[key].get("run_attempt", 0)):
+                          latest[key] = run
+              def cell(name):
+                  run = latest.get(name)
+                  if not run:
+                      return "not observed"
+                  status = run.get("conclusion") if run.get("status") == "completed" else run.get("status")
+                  allowed = {"success", "failure", "cancelled", "skipped", "neutral", "timed_out", "action_required", "stale", "startup_failure", "queued", "in_progress", "waiting", "pending", "requested"}
+                  return status if status in allowed else "unknown"
+              rows.append("| #" + str(number) + " | `" + sha[:12] + "` | " + " | ".join(cell(n) for n in names) + " |")
+          if not prs:
+              rows.append("\nNo open PRs.")
+          if len(prs) > 30:
+              rows.append("\nLimited to 30 most recently updated open PRs.")
+          rows.extend(["", "A missing run may mean a path-filtered workflow, delayed CI, or unavailable evidence. This dashboard is not merge authorization; it does not run tests, merge, deploy, or send ChatGPT notifications."])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("\n".join(rows) + "\n")
+          PY
