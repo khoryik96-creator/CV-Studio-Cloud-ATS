@@ -12,6 +12,7 @@ import cvstudio_cv_normalize as normal
 import cvstudio_cv_reconcile as reconcile
 import cvstudio_blind_mask as blind
 from cvstudio_cv_fidelity import evaluate_cv_fidelity, summarize_fidelity_warning
+from cvstudio_layout_parity import finish
 from cloud.cv_outline import _infer_label_bullet_levels, _merge_bullet_level_lists
 
 
@@ -84,7 +85,7 @@ def postprocess_blind(provider_blinded: dict, original_parsed: dict) -> dict:
     value = blind._blind_finalize_summary_bullets(value, original_parsed)
     value = blind._blind_postprocess_company_mentions(value, original_parsed)
     value = blind._blind_scrub_candidate_identity(value, original_parsed)
-    return normal._normalize_cv_structured_content(value)
+    return normal._normalize_cv_structured_content(finish(value))
 
 
 def prepare_export(data: dict, *, alignment="left", summary_box_autofit=True,
