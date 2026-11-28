@@ -22,8 +22,8 @@ class WorkerLeases:
     def __init__(self, repository):
         self.repository = repository
 
-    def claim(self, principal, *, cv_only=False, include_scoring=False, include_reports=False, include_profile=False):
-        if type(cv_only) is not bool or type(include_scoring) is not bool or type(include_reports) is not bool or type(include_profile) is not bool:
+    def claim(self, principal, *, cv_only=False, include_scoring=False, include_reports=False, include_profile=False, include_blind_jd=False):
+        if type(cv_only) is not bool or type(include_scoring) is not bool or type(include_reports) is not bool or type(include_profile) is not bool or type(include_blind_jd) is not bool:
             raise ValueError("Invalid claim filter")
         token = str(uuid4())
         with self.repository.scoped(principal) as (conn, tenant, owner):
@@ -40,6 +40,7 @@ class WorkerLeases:
                 AND (NOT %s OR j.module IN ('cv_formatting','cv_blinding')
                     OR (%s AND j.module='cv_scoring' AND j.scoring_jd_id IS NOT NULL)
                     OR (%s AND j.module IN ('blind_jd','company_profile') AND j.report_options IS NOT NULL)
+                    OR (%s AND j.module='blind_jd' AND j.report_options IS NOT NULL)
                     OR (%s AND j.module='create_profile' AND j.profile_confirmation IS NOT NULL))
                 AND NOT EXISTS (SELECT 1 FROM cvcloud.jobs running WHERE running.tenant_id=j.tenant_id
                     AND running.owner_id=j.owner_id AND running.state='running')
@@ -49,7 +50,7 @@ class WorkerLeases:
                   updated_at=clock_timestamp()
               FROM next_job n WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=n.id
               RETURNING j.id::text,j.document_id::text,j.module,j.lease_token::text""",
-                (tenant,owner,cv_only,include_scoring,include_reports,include_profile,token,LEASE_SECONDS,tenant,owner)).fetchone()
+                (tenant,owner,cv_only,include_scoring,include_reports,include_blind_jd,include_profile,token,LEASE_SECONDS,tenant,owner)).fetchone()
         return Lease(*row) if row else None
 
     def heartbeat(self, principal, lease):
