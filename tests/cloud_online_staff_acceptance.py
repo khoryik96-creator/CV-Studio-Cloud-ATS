@@ -5,6 +5,7 @@ from cloud.deploy.workspace_staff_access import issue_staff,redeem_staff
 from cloud.deploy.workspace_staff_install import install
 
 def verify_staff(test,*,owner_connect,auth_connect,tenant_id,other_tenant):
+    from concurrent.futures import ThreadPoolExecutor
     import psycopg
     from cloud.app import COOKIE, create_app
     from cloud.deploy.workspace_staff_web import register_staff_access, verify_staff_database
@@ -51,6 +52,19 @@ def verify_staff(test,*,owner_connect,auth_connect,tenant_id,other_tenant):
             expires_at<=clock_timestamp()+interval '90 days' FROM cvcloud.sessions
             WHERE token_digest=%s""",(digest(raw),)).fetchone()
         test.assertEqual(row,(True,True))
+    challenge = issue_staff(owner_connect, tenant="one", email="staff@example.test")
+    already_signed_in = browser.post("/staff/enroll", base_url=origin,
+                                     headers={"Origin":origin}, json={"token":challenge})
+    test.assertEqual(already_signed_in.status_code, 409)
+
+    def redeem_from_new_browser(peer):
+        with app.test_client() as other_browser:
+            return other_browser.post("/staff/enroll", base_url=origin, headers={"Origin":origin},
+                                      json={"token":challenge}, environ_overrides={"REMOTE_ADDR":peer}).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(redeem_from_new_browser, ("192.0.2.42", "192.0.2.43")))
+    test.assertEqual(sorted(statuses), [200, 401])
     expired=issue_staff(owner_connect,tenant="one",email="staff@example.test")
     with owner_connect() as conn:
         conn.execute("UPDATE cvcloud.staff_enrollments SET expires_at=clock_timestamp()-interval '1 second' WHERE token_digest=%s",(digest(expired),))
