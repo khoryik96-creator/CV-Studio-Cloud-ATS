@@ -12,7 +12,7 @@ CREATE TABLE cvcloud.staff_enrollments (
 );
 CREATE FUNCTION cvcloud.redeem_staff_enrollment(p_digest text,p_session text,p_csrf text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $body$
-DECLARE t uuid; u uuid; epoch bigint; version bigint; current_role text; challenge record;
+DECLARE t uuid; u uuid; epoch bigint; version bigint; staff_account_role text; challenge record;
 BEGIN
     IF p_digest IS NULL OR p_session IS NULL OR p_csrf IS NULL
        OR p_digest !~ '^[a-f0-9]{64}$' OR p_session !~ '^[a-f0-9]{64}$'
@@ -22,9 +22,9 @@ BEGIN
     IF NOT FOUND THEN RETURN false; END IF;
     SELECT auth_epoch INTO epoch FROM cvcloud.tenants WHERE id=t AND active FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
-    SELECT credential_version,role INTO version,current_role FROM cvcloud.users
+    SELECT credential_version,role INTO version,staff_account_role FROM cvcloud.users
         WHERE tenant_id=t AND id=u AND active FOR UPDATE;
-    IF NOT FOUND OR current_role<>'recruiter' THEN RETURN false; END IF;
+    IF NOT FOUND OR staff_account_role<>'recruiter' THEN RETURN false; END IF;
     SELECT * INTO challenge FROM cvcloud.staff_enrollments e
         WHERE e.tenant_id=t AND e.user_id=u AND e.token_digest=p_digest FOR UPDATE;
     IF NOT FOUND OR challenge.expires_at<=clock_timestamp()
