@@ -15,6 +15,8 @@ export CVCLOUD_PUBLIC_ORIGIN=https://cvstudio.hyplug.co
 export CVCLOUD_INGRESS_SUBNET=172.29.68.0/24
 export CVCLOUD_TRUSTED_PROXY_IP=172.29.68.10
 export CVCLOUD_LIVE_AI=disabled
+export CVCLOUD_PILOT_HOST=cvstudio.hyplug.co
+export CVCLOUD_PILOT_PORT=18444
 for role in BOOTSTRAP SCHEMA AUTH DOCUMENT PROVIDER WORKER PROVIDER_READER SCHEDULER ADMIN; do
     file="$secret_dir/$role"
     python3 -c 'import secrets; print(secrets.token_hex(32))' > "$file"
@@ -35,13 +37,13 @@ services:
       ingress:
         ipv4_address: 172.29.68.10
 YAML
-compose() { docker compose -p "$project" -f compose.online-workspace.yaml -f "$secret_dir/probe.yaml" "$@"; }
+compose() { docker compose -p "$project" -f compose.online-workspace.yaml -f compose.online-pilot.yaml -f "$secret_dir/probe.yaml" "$@"; }
 cleanup() {
     result=$?
     if [ "$result" -ne 0 ]; then
         # This script runs only on disposable CI with synthetic credentials.
         compose ps -a || true
-        compose logs --no-color --tail=80 initialize migrate grant-install admin-install report-install web || true
+        compose logs --no-color --tail=80 initialize migrate grant-install admin-install report-install web pilot-proxy || true
     fi
     compose down --remove-orphans --volumes >/dev/null 2>&1 || true
     rm -rf "$secret_dir"
@@ -91,3 +93,22 @@ assert req("GET","/api/blind-jd/jobs",headers)[0]==200
 assert req("GET","/api/company-profile/jobs",headers)[0]==404
 '
 echo "Internal online workspace startup and authenticated UI passed. Live worker remains disabled."
+
+# Exercise the actual browser-facing private TLS proxy, not just a direct
+# container probe. The temporary probe has exited and freed the reserved IP.
+compose up --no-build -d --wait --wait-timeout 120 pilot-proxy
+proxy=$(compose ps -q pilot-proxy)
+docker inspect --format '{{json .HostConfig.PortBindings}}' "$proxy" | python3 -c 'import json,sys; assert json.load(sys.stdin)=={"8443/tcp":[{"HostIp":"127.0.0.1","HostPort":"18444"}]}'
+compose exec -T pilot-proxy cat /data/caddy/pki/authorities/local/root.crt > "$secret_dir/pilot-root.crt"
+pilot_curl() {
+    curl --silent --show-error --fail --noproxy '*' --connect-timeout 5 --max-time 20 \
+        --cacert "$secret_dir/pilot-root.crt" \
+        --connect-to "cvstudio.hyplug.co:443:127.0.0.1:$CVCLOUD_PILOT_PORT" "$@"
+}
+pilot_curl --retry 8 --retry-connrefused --retry-delay 2 https://cvstudio.hyplug.co/cloud-ui | grep -q 'Online workspace candidate'
+pilot_curl -c "$secret_dir/cookies" -H 'Origin: https://cvstudio.hyplug.co' -H 'Content-Type: application/json' \
+    -H 'X-Forwarded-For: 192.0.2.1, 192.0.2.2' -H 'X-Forwarded-Proto: http' \
+    --data '{"tenant":"fictional","email":"owner@example.test","password":"synthetic-owner-ci-only-123"}' \
+    https://cvstudio.hyplug.co/api/auth/login >/dev/null
+pilot_curl -b "$secret_dir/cookies" https://cvstudio.hyplug.co/api/auth/me | python3 -c 'import json,sys; assert json.load(sys.stdin)["role"]=="owner"'
+echo "Private loopback TLS proxy and authenticated browser path passed."

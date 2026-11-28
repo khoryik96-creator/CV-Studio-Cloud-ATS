@@ -1,0 +1,34 @@
+# Private browser acceptance only. Never use this internal CA for public ingress.
+# Layer on compose.online-workspace.yaml with a NEW dedicated project name.
+services:
+  pilot-proxy:
+    image: caddy:2-alpine
+    command: ["caddy","run","--config","/etc/caddy/Caddyfile","--adapter","caddyfile"]
+    environment:
+      CVCLOUD_PILOT_HOST: "${CVCLOUD_PILOT_HOST:?Set private test hostname}"
+    ports:
+      - "127.0.0.1:${CVCLOUD_PILOT_PORT:-18444}:8443"
+    volumes:
+      - ./Caddyfile.online-pilot:/etc/caddy/Caddyfile:ro
+      - pilot_tls:/data
+      - pilot_config:/config
+    networks:
+      ingress:
+        ipv4_address: "${CVCLOUD_TRUSTED_PROXY_IP:?Set reserved ingress proxy IP}"
+      pilot_access: {}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: {max-size: "2m", max-file: "2"}
+    depends_on:
+      web: {condition: service_healthy}
+networks:
+  pilot_access: {}
+volumes:
+  pilot_tls:
+  pilot_config:
