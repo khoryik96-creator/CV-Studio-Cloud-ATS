@@ -5,7 +5,8 @@ test "${GITHUB_ACTIONS:-}" = true
 test "${RUNNER_OS:-}" = Linux
 cd "$(dirname "$0")"
 project="cvcloud-auth-smoke-$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
-for kind in container network volume; do
+test -z "$(docker container ls -aq --filter "label=com.docker.compose.project=$project")"
+for kind in network volume; do
     test -z "$(docker "$kind" ls -q --filter "label=com.docker.compose.project=$project")"
 done
 secret_dir=$(mktemp -d)
