@@ -10,3 +10,9 @@
 !cloud/deploy/online_auth.py
 !cloud/deploy/online_owner.py
 !cloud/deploy/online_serve.py
+!cloud/deploy/online_init.py
+!cloud/deploy/online_check.py
+!cloud/deploy/online_auth_grants.sql
+!cloud/migrations/
+!cloud/migrations/001_auth.sql
+!cloud/migrations/004_auth_epoch.sql
