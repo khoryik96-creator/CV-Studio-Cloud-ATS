@@ -1,0 +1,19 @@
+name: Cloud VPS container smoke
+on:
+  push:
+    branches: [master]
+    paths: ['cloud/**', '.github/workflows/cloud-vps-smoke.yml']
+  pull_request:
+    branches: [master]
+    paths: ['cloud/**', '.github/workflows/cloud-vps-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  health-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sh -n cloud/deploy/smoke.sh
+      - run: sh cloud/deploy/smoke.sh
