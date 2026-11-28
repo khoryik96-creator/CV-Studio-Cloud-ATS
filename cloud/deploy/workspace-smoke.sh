@@ -44,7 +44,7 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 compose config --quiet
 compose up --build -d --wait --wait-timeout 240 web
-test -z "$(compose ps -q worker)"
+test -z "$(docker container ls -aq --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=worker")"
 for service in web online-db; do
     id=$(compose ps -q "$service")
     test -n "$id"
@@ -71,5 +71,10 @@ status,cookie,_=req("POST","/api/auth/login",headers,json.dumps({"tenant":"ficti
 assert status==200 and "Secure" in cookie and "HttpOnly" in cookie
 status,_,body=req("GET","/api/auth/me",dict(headers,Cookie=cookie.split(";")[0]))
 assert status==200 and json.loads(body)["role"]=="owner"
+headers=dict(headers,Cookie=cookie.split(";")[0],**{"X-CSRF-Token":json.loads(body)["csrf"],"Content-Type":"text/plain"})
+status,_,body=req("POST","/api/documents",headers,b"Fictional workspace candidate")
+assert status==201 and json.loads(body)["document_id"]
+status,_,body=req("GET","/api/documents",headers)
+assert status==200 and len(json.loads(body)["items"])==1
 '
 echo "Internal online workspace startup and authenticated UI passed. Live worker remains disabled."
