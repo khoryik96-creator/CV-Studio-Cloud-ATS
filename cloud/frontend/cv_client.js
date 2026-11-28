@@ -165,9 +165,9 @@
       return {candidate:value.candidate,intent:{document_id,confirmation:value.confirmation,idempotency_key:id(uuid())}};
     }
     async function confirmProfile(intent,{signal}={}){
-      const response=await json(profileBase+"/jobs",{expected:active(),method:"POST",write:true,signal,
+      const response=await json(profileBase+"/jobs",{expected:active(),method:"POST",write:true,signal,preserveIntent:true,
         contentType:"application/json",body:JSON.stringify({...intent,confirmed:true})});
-      return id(response.job_id);
+      return submittedId(response.job_id);
     }
     async function profileReports(jobId=null,{signal}={}){
       return json(profileBase+"/jobs"+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
