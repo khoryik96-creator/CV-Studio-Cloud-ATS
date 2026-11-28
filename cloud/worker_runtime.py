@@ -13,8 +13,8 @@ from cloud.documents_jobs import uid
 from cloud.cv_runner import run_claimed
 
 class WorkerRuntime:
-    def __init__(self,*,principals,repository,storage,workers,ledger,outputs,resolve_provider,concurrency=2,enable_ocr=False,enable_scoring=False,research=None,create_profile=None):
-        if type(concurrency) is not int or not 1<=concurrency<=4 or type(enable_ocr) is not bool or type(enable_scoring) is not bool:
+    def __init__(self,*,principals,repository,storage,workers,ledger,outputs,resolve_provider,concurrency=2,enable_ocr=False,enable_scoring=False,research=None,create_profile=None,enable_blind_jd=False):
+        if type(concurrency) is not int or not 1<=concurrency<=4 or type(enable_ocr) is not bool or type(enable_scoring) is not bool or type(enable_blind_jd) is not bool:
             raise ValueError("Invalid worker limits")
         if not isinstance(principals,(list,tuple)) or not 1<=len(principals)<=100:
             raise ValueError("Trusted bounded owner roster required")
@@ -54,6 +54,8 @@ class WorkerRuntime:
             self._claim_filters["include_scoring"] = True
         if research is not None:
             self._claim_filters["include_reports"] = True
+        elif enable_blind_jd:
+            self._claim_filters["include_blind_jd"] = True
         if create_profile is not None:
             self._claim_filters["include_profile"] = True
 
