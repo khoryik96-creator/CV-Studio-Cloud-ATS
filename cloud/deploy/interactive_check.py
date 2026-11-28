@@ -114,6 +114,43 @@ def check_scoring(document_id, auth, other):
     print("Synthetic HTTPS CV scoring and evidence retrieval passed", file=sys.stderr)
 
 
+def check_document_reports(auth, other):
+    fixtures = ROOT / "tests/fixtures"
+    profile = {"focus": "general", "length": "concise", "tone": "professional"}
+    blind = {"identifiers": ["Fictional Harbour Labs"], "technologies": ["Ansible"]}
+    cases = [
+        ("company-profile", "cloud_cv_company_name.txt", profile),
+        ("blind-jd", "cloud_cv_blind_jd.txt", blind),
+    ]
+    reports = {}
+    for module, fixture, options in cases:
+        text = (fixtures / fixture).read_bytes()
+        document = json.loads(expect("POST", "/api/documents", 201, text,
+                                      {**auth, "Content-Type": "text/plain"})[2])["document_id"]
+        endpoint = "/api/" + module + "/jobs"
+        payload = json.dumps({"document_id": document, "options": options, "idempotency_key": str(uuid4())})
+        write = {**auth, "Content-Type": "application/json"}
+        job_id = json.loads(expect("POST", endpoint, 202, payload, write)[2])["job_id"]
+        assert json.loads(expect("POST", endpoint, 202, payload, write)[2])["job_id"] == job_id
+        path = endpoint + "/" + job_id
+        expect("GET", path, 404, headers=other)
+        assert wait_for_output(path, auth) == "succeeded"
+        reports[module] = json.loads(expect("GET", path, 200, headers=auth)[2])["result"]
+        assert reports[module]["human_review_required"]
+
+    company = reports["company-profile"]
+    assert company["source_verification"] == "supplied_excerpts_only"
+    assert company["claims"][0]["evidence"][0]["source_id"] == company["sources"][0]["id"]
+    assert company["sources"][0]["url"] == "https://research.example.test/harbour-overview"
+    jd = reports["blind-jd"]["report"]
+    assert "Ansible" in jd["tech_stack"]
+    assert "Two years of infrastructure operations experience required." in jd["requirements"]
+    assert "Maintain cloud monitoring and document recovery procedures." in jd["responsibilities"]
+    result_text = json.dumps(jd).casefold()
+    assert "fictional harbour labs" not in result_text and "fictional-harbour.invalid" not in result_text
+    print("Synthetic HTTPS Company Profile citations and Blind JD preservation passed", file=sys.stderr)
+
+
 def check_persistence(job_id):
     job_id = str(UUID(job_id))
     path = "/api/jobs/" + job_id
@@ -178,6 +215,7 @@ def main():
     expect("GET",other_path+"/download?review=1",200,headers=other)
     check_blinding(doc, auth, other)
     check_scoring(doc, auth, other)
+    check_document_reports(auth, other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     expect("POST","/api/auth/logout",200,headers=other)

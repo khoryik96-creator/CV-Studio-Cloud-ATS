@@ -48,7 +48,8 @@ class BudgetedCompletion:
         self.policy,self.transport=policy,transport
 
     def __call__(self,stage,system,user,max_tokens):
-        stages={"cv_formatting":("parse",),"cv_blinding":("parse","blind"),"cv_scoring":("assess",)}
+        stages={"cv_formatting":("parse",),"cv_blinding":("parse","blind"),"cv_scoring":("assess",),
+                "blind_jd":("anonymise_jd",),"company_profile":("company_profile",)}
         if stage not in stages.get(self.lease.module,()) or not isinstance(system,str) or not isinstance(user,str):
             raise DispatchError("invalid_completion_request")
         p=self.policy
