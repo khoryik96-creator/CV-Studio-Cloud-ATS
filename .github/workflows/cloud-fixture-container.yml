@@ -1,0 +1,19 @@
+name: Cloud synthetic fixture container
+on:
+  pull_request:
+    branches: [master]
+    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/cloud_postgres_integration.py', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-fixture-container.yml']
+  push:
+    branches: [master]
+    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/cloud_postgres_integration.py', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-fixture-container.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sh -n cloud/deploy/fixture-smoke.sh
+      - run: sh cloud/deploy/fixture-smoke.sh
