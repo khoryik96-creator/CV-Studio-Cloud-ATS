@@ -1,0 +1,39 @@
+# Disposable synthetic integration check, not a server or production stack.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: synthetic-ci-only
+      POSTGRES_DB: cvcloud_test
+    tmpfs:
+      - /var/lib/postgresql/data:size=512m
+    networks: [fixture]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "cvcloud_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1
+  check:
+    build:
+      context: ../..
+      dockerfile: cloud/deploy/Dockerfile.fixture
+    environment:
+      CVCLOUD_TEST_DSN: postgresql://postgres:synthetic-ci-only@db:5432/cvcloud_test
+      CVCLOUD_TEST_RUNTIME_DSN: postgresql://cvcloud_runtime:synthetic-runtime-only@db:5432/cvcloud_test
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [fixture]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1024m
+    cpus: 2
+    pids_limit: 128
+networks:
+  fixture:
+    internal: true
