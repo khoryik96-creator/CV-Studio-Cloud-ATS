@@ -9,7 +9,7 @@ COPY cloud/ ./cloud/
 COPY cvstudio_*.py generate.js index.html ./
 COPY vendor/cvstudio/app.css ./vendor/cvstudio/app.css
 COPY tests/cloud_postgres_integration.py ./tests/
-COPY tests/fixtures/cloud_cv_source.txt tests/fixtures/cloud_cv_parse.json ./tests/fixtures/
+COPY tests/fixtures/cloud_cv_source.txt tests/fixtures/cloud_cv_parse.json tests/fixtures/cloud_cv_blind.json ./tests/fixtures/
 RUN touch tests/__init__.py
 RUN install -d -m 0700 -o 10001 -g 10001 /srv/cvcloud/data
 USER 10001:10001

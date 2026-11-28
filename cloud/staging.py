@@ -22,20 +22,25 @@ class SyntheticEnvironment:
     app: object
     worker: WorkerRuntime
 
-def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,concurrency=1,enable_batch=False,strict_upload=False):
+def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,fixture_blind_answer=None,concurrency=1,enable_batch=False,strict_upload=False):
     """Run one known fictional fixture through real storage/queue/renderer.
 
     A worker may accept only the exact supplied fixture text after the engine's
     source preparation. Other inputs are refused without any external call.
     The injected connection must target an isolated disposable test database.
     """
-    from cloud.cv_engine import prepare_source,answer_json
+    from cloud.cv_engine import prepare_source,answer_json,blind_prompt,parse_prompt
     if not isinstance(fixture_source,str) or not isinstance(fixture_answer,str):
         raise ValueError("Fictional fixture strings required")
     if not public_origin.endswith(".test"):
         raise ValueError("Reserved .test staging host required")
     expected=prepare_source(fixture_source)
     answer_json(fixture_answer)
+    parse_systems = (parse_prompt(), parse_prompt(correct_language=True))
+    blind_systems = ()
+    if fixture_blind_answer is not None:
+        answer_json(fixture_blind_answer)
+        blind_systems = (blind_prompt(), blind_prompt(neutral_gender=True))
     repo=DocumentJobs(connect)
     storage=PrivateStorage(storage_root)
     uploads=UploadService(repo,storage)
@@ -49,9 +54,12 @@ def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_so
     policy=ModelPolicy("deepseek","synthetic-model",1,1,200000,32000)
     def resolve(principal):
         def fake(provider,model,system,prompt,limit):
-            if (provider,model)!=("deepseek","synthetic-model") or prompt!=expected:
-                raise ValueError("synthetic_fixture_only")
-            return Completion(fixture_answer,100,100)
+            if (provider, model) == ("deepseek", "synthetic-model"):
+                if system in parse_systems and prompt == expected:
+                    return Completion(fixture_answer, 100, 100)
+                if system in blind_systems and prompt.startswith("Anonymise this parsed CV JSON:\n\n"):
+                    return Completion(fixture_blind_answer, 100, 100)
+            raise ValueError("synthetic_fixture_only")
         return policy,fake
     app=create_app(auth_store=PostgresAuthStore(connect),public_origin=public_origin,cv_services=(uploads,repo,outputs))
     register_existing_ui(app,enable_batch=enable_batch)

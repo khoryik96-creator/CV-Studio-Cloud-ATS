@@ -34,6 +34,48 @@ def login(tenant):
     me=json.loads(expect("GET","/api/auth/me",200,headers=auth)[2])
     return {**auth,"Origin":ORIGIN,"X-CSRF-Token":me["csrf"]}
 
+def wait_for_output(path, auth):
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        state = json.loads(expect("GET", path, 200, headers=auth)[2])["state"]
+        if state in ("succeeded", "needs_review"):
+            return state
+        if state == "failed":
+            raise RuntimeError("Synthetic job failed")
+        time.sleep(2)
+    raise RuntimeError("Automatic worker did not finish")
+
+
+def check_blinding(document_id, auth, other):
+    data = json.dumps({
+        "document_id": document_id,
+        "module": "cv_blinding",
+        "neutral_gender": True,
+        "idempotency_key": str(uuid4()),
+    })
+    job = json.loads(expect("POST", "/api/jobs", 202, data,
+                            {**auth, "Content-Type": "application/json"})[2])
+    path = "/api/jobs/" + job["job_id"]
+    assert wait_for_output(path, auth) == "needs_review"
+    expect("GET", path + "/preview", 409, headers=auth)
+    expect("GET", path + "/download", 409, headers=auth)
+    expect("GET", path + "/download?review=1", 404, headers=other)
+    raw = expect("GET", path + "/download?review=1", 200, headers=auth)[2]
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        xml = archive.read("word/document.xml").lower()
+        assert b"disaster recovery automation" in xml
+        assert b"automated recovery checks with ansible" in xml
+        for entry in archive.namelist():
+            if not entry.endswith((".xml", ".rels")):
+                continue
+            data = archive.read(entry).lower()
+            for identifier in (b"avery example", b"avery@example.invalid", b"+60 10 000 0000",
+                               b"example cloud sdn bhd", b"example systems sdn bhd",
+                               b"example technical university"):
+                assert identifier not in data
+    print("Synthetic HTTPS blinding and human review passed", file=sys.stderr)
+
+
 def check_persistence(job_id):
     job_id = str(UUID(job_id))
     path = "/api/jobs/" + job_id
@@ -63,6 +105,7 @@ def main():
         return
     page=expect("GET","/cloud-ui",200)[2]
     assert b'id="btnFormat"' in page
+    assert b'/cloud-ui/assets/batch_cloud.js' in page
     expect("GET","/readyz",503)
     expect("GET","/api/auth/me",401)
     expect("GET","/jobadder",404)
@@ -75,19 +118,7 @@ def main():
         "alignment":"justify","idempotency_key":str(uuid4())}),{**auth,"Content-Type":"application/json"})[2])["job_id"]
     path="/api/jobs/"+job
     expect("GET",path,404,headers=other)
-    end=time.monotonic()+120
-    while time.monotonic()<end:
-        state=json.loads(expect("GET",path,200,headers=auth)[2])["state"]
-        if state=="succeeded":
-            break
-        if state=="needs_review":
-            # A review-flagged result may still have a downloadable artifact.
-            break
-        if state=="failed":
-            raise RuntimeError("Synthetic job failed")
-        time.sleep(2)
-    else:
-        raise RuntimeError("Automatic worker did not finish")
+    wait_for_output(path, auth)
     raw=expect("GET",path+"/download?review=1",200,headers=auth)[2]
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         xml=archive.read("word/document.xml")
@@ -98,17 +129,9 @@ def main():
         "idempotency_key":str(uuid4())}),{**other,"Content-Type":"application/json"})[2])["job_id"]
     other_path="/api/jobs/"+other_job
     expect("GET",other_path,404,headers=auth)
-    end=time.monotonic()+120
-    while time.monotonic()<end:
-        state=json.loads(expect("GET",other_path,200,headers=other)[2])["state"]
-        if state in ("succeeded","needs_review"):
-            break
-        if state=="failed":
-            raise RuntimeError("Second tenant job failed")
-        time.sleep(2)
-    else:
-        raise RuntimeError("Second tenant worker starvation")
+    wait_for_output(other_path, other)
     expect("GET",other_path+"/download?review=1",200,headers=other)
+    check_blinding(doc, auth, other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     expect("POST","/api/auth/logout",200,headers=other)
