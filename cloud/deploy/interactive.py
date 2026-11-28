@@ -58,12 +58,15 @@ def seed():
             db.execute("CREATE TABLE public.cvcloud_fixture_marker (signature text PRIMARY KEY)")
             db.execute("INSERT INTO public.cvcloud_fixture_marker VALUES (%s)", (signature,))
 
-def environment():
+def environment(*, reverse=False):
     from cloud.auth import Principal
     from cloud.staging import compose_synthetic
     fixtures = ROOT / "tests/fixtures"
+    principals=[Principal(TENANT,USER,"recruiter",""),Principal(OTHER_TENANT,OTHER_USER,"recruiter","")]
+    if reverse:
+        principals.reverse()
     return compose_synthetic(connect=connect,storage_root=STORAGE,
-        principals=[Principal(TENANT,USER,"recruiter",""),Principal(OTHER_TENANT,OTHER_USER,"recruiter","")],
+        principals=principals,
         public_origin=ORIGIN,fixture_source=(fixtures/"cloud_cv_source.txt").read_text(encoding="utf-8"),
         fixture_answer=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8"),
         strict_upload=True,concurrency=1)
@@ -84,8 +87,11 @@ def worker():
         raise SystemExit(0)
     signal.signal(signal.SIGTERM,stop)
     signal.signal(signal.SIGINT,stop)
+    reverse = False
     while True:
-        child = subprocess.Popen([sys.executable,"-m","cloud.deploy.interactive","tick"],start_new_session=True)
+        action = "tick-other" if reverse else "tick"
+        reverse = not reverse
+        child = subprocess.Popen([sys.executable,"-m","cloud.deploy.interactive",action],start_new_session=True)
         try:
             child.wait(timeout=660)
         except subprocess.TimeoutExpired:
@@ -97,7 +103,8 @@ def worker():
         time.sleep(3)
 
 def main():
-    actions={"seed":seed,"web":web,"worker":worker,"tick":lambda:environment().worker.tick()}
+    actions={"seed":seed,"web":web,"worker":worker,"tick":lambda:environment().worker.tick(),
+             "tick-other":lambda:environment(reverse=True).worker.tick()}
     if len(sys.argv)!=2 or sys.argv[1] not in actions:
         raise SystemExit("Specify seed, web, worker or tick")
     actions[sys.argv[1]]()
