@@ -67,6 +67,16 @@ services:
     networks: [database]
     depends_on:
       migrate: {condition: service_completed_successfully}
+  admin-install:
+    <<: *app
+    command: ["python","-m","cloud.deploy.workspace_admin_install"]
+    environment:
+      CVCLOUD_BOOTSTRAP_PASSWORD_FILE: /run/secrets/bootstrap_password
+      CVCLOUD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    secrets: [bootstrap_password, admin_password]
+    networks: [database]
+    depends_on:
+      grant-install: {condition: service_completed_successfully}
   web:
     <<: *app
     command: ["python","-m","cloud.deploy.workspace_entry","web"]
@@ -76,13 +86,14 @@ services:
       CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password
       CVCLOUD_DOCUMENT_PASSWORD_FILE: /run/secrets/document_password
       CVCLOUD_PROVIDER_PASSWORD_FILE: /run/secrets/provider_password
+      CVCLOUD_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
       CVCLOUD_KEYRING_FILE: /run/secrets/keyring
       CVCLOUD_MODEL_CATALOGUE_FILE: /run/secrets/model_catalogue
-    secrets: [auth_password, document_password, provider_password, keyring, model_catalogue]
+    secrets: [auth_password, document_password, provider_password, admin_password, keyring, model_catalogue]
     networks: [database,ingress]
     volumes: [workspace_documents:/srv/cvcloud/data]
     depends_on:
-      grant-install: {condition: service_completed_successfully}
+      admin-install: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD","python","-m","cloud.deploy.workspace_check"]
       interval: 15s
@@ -154,3 +165,5 @@ secrets:
     file: "${CVCLOUD_KEYRING_SECRET_PATH:?Set protected keyring file}"
   model_catalogue:
     file: "${CVCLOUD_MODEL_CATALOGUE_PATH:?Set approved model catalogue file}"
+  admin_password:
+    file: "${CVCLOUD_ADMIN_SECRET_PATH:?Set protected admin secret path}"
