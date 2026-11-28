@@ -50,6 +50,11 @@ class TestEngine(unittest.TestCase):
         self.assertNotIn("Digi", _blind_collect_org_mask_terms({"summary_bullets": [ordinary]}))
         self.assertEqual(_blind_replace_org_terms_in_text("Launched DigiPrepaid and Maybank2u.", ["Digi", "Maybank"]),
                          "Launched [Company]Prepaid and [Company]2u.")
+        self.assertIn("Maxis", _blind_collect_org_mask_terms(
+            {"work_experiences": [{"roles": [{"bullets": ["LED THE MAXISONE LAUNCH"]}]}]},
+        ))
+        self.assertEqual(_blind_replace_org_terms_in_text("LED THE MAXISONE LAUNCH", ["Maxis"]),
+                         "LED THE [Company]ONE LAUNCH")
 
     def test_distinct_blind_roles_keep_their_employer_boundaries(self):
         from copy import deepcopy
