@@ -5,8 +5,8 @@ from distinct protected files. The initializer does not overwrite existing
 credentials, create accounts, start a web service or dispatch AI.
 """
 from hashlib import sha256
-from psycopg import sql
-from cloud.deploy.online_init import ROOT, BOOT, OWNER, DB, connect_as, read_secret
+import re
+from cloud.deploy.online_init import ROOT, BOOT, DB, connect_as, read_secret
 from cloud.deploy.online_workspace_schema import migration_plan
 from cloud.deploy.workspace_roles import verify_service_role
 
@@ -20,7 +20,9 @@ ROLES = {
 GRANT_FILE=ROOT/"cloud/deploy/workspace_data_grants.sql"
 
 def install_grants(*, boot_connect, secrets, runtime_connect):
-    if set(secrets)!=set(ROLES) or len(set(secrets.values()))!=len(ROLES):
+    from psycopg import sql
+    if (set(secrets)!=set(ROLES) or not all(isinstance(v,str) and re.fullmatch('[0-9a-f]{64}',v) for v in secrets.values())
+            or len(set(secrets.values()))!=len(ROLES)):
         raise ValueError("Distinct workspace role secrets required")
     raw=GRANT_FILE.read_bytes()
     signature=sha256(raw).hexdigest()
