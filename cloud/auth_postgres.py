@@ -27,17 +27,20 @@ class PostgresAuthStore:
                    WHERE t.slug=%s AND u.email_normalized=%s""", (tenant, email)).fetchone()
         return Account(*row) if row else None
 
+    def _lock_account(self, conn, account):
+        return conn.execute("""SELECT u.credential_version,t.auth_epoch
+            FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
+            WHERE u.tenant_id=%s AND u.id=%s AND u.password_hash=%s
+            AND u.credential_version=%s AND t.auth_epoch=%s AND u.active AND t.active
+            FOR SHARE OF u,t""",(account.tenant_id,account.user_id,account.password_hash,
+            account.credential_version,account.tenant_epoch)).fetchone()
+
     def create_session(self, digest, csrf, account, expires):
         with self.connect() as conn:
             # The credential version is rechecked in the same transaction.
             # Serialize against password changes and tenant disable/enable, and
             # refuse credentials checked before either version changed.
-            current = conn.execute("""SELECT u.credential_version,t.auth_epoch
-                FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                WHERE u.tenant_id=%s AND u.id=%s AND u.password_hash=%s
-                AND u.credential_version=%s AND t.auth_epoch=%s AND u.active AND t.active
-                FOR SHARE OF u,t""",(account.tenant_id,account.user_id,account.password_hash,
-                account.credential_version,account.tenant_epoch)).fetchone()
+            current = self._lock_account(conn, account)
             if not current:
                 return False
             row = conn.execute("""INSERT INTO cvcloud.sessions
