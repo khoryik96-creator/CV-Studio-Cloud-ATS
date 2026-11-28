@@ -152,7 +152,11 @@ window.CVCloudCreateProfile = Object.freeze({
         update();
       }catch(error){
         if(error.code==="authentication_required")throw error;
-        if(!life.signal.aborted)connection.textContent="Integration status unavailable";
+        if(!life.signal.aborted){
+          connected=false;
+          connection.textContent="Integration status unavailable";
+          update();
+        }
       }
     }
 

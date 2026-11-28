@@ -151,7 +151,7 @@ def check_document_reports(auth, other):
     print("Synthetic HTTPS Company Profile citations and Blind JD preservation passed", file=sys.stderr)
 
 
-def check_create_profile(document_id, auth, other):
+def check_create_profile(document_id, other_document, auth, other):
     from cloud.auth import Principal
     from cloud.deploy.interactive import TENANT, USER, connect
     from cloud.documents_jobs import DocumentJobs
@@ -211,7 +211,18 @@ def check_create_profile(document_id, auth, other):
     with repo.scoped(principal) as (db, tenant, owner):
         assert db.execute("SELECT count(*) FROM cvcloud.jobadder_fixture_candidates WHERE tenant_id=%s",
                           (tenant,)).fetchone()[0] == 1
-    print("Mock JobAdder confirmation, CV upload, duplicate prevention and reconciliation passed", file=sys.stderr)
+    second_write = {**other, "Content-Type": "application/json"}
+    second_review = json.loads(expect("POST", base + "/prepare", 200,
+        json.dumps({"document_id": other_document}), second_write)[2])
+    second_data = {"document_id": other_document, "idempotency_key": str(uuid4()),
+                   "confirmation": second_review["confirmation"], "confirmed": True}
+    second_job = json.loads(expect("POST", endpoint, 202, json.dumps(second_data), second_write)[2])["job_id"]
+    second_path = endpoint + "/" + second_job
+    assert wait_for_output(second_path, other) == "succeeded"
+    second_result = json.loads(expect("GET", second_path, 200, headers=other)[2])["result"]
+    assert second_result["outcome"] == "created" and second_result["cv_uploaded"]
+    expect("GET", second_path, 404, headers=auth)
+    print("Mock JobAdder confirmation, CV upload, duplicate prevention, tenant isolation and reconciliation passed", file=sys.stderr)
 
 
 def check_persistence(job_id):
@@ -279,7 +290,7 @@ def main():
     check_blinding(doc, auth, other)
     check_scoring(doc, auth, other)
     check_document_reports(auth, other)
-    check_create_profile(doc, auth, other)
+    check_create_profile(doc, other_doc, auth, other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     expect("POST","/api/auth/logout",200,headers=other)
