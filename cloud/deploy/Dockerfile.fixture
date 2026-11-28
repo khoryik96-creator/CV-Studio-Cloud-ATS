@@ -1,0 +1,15 @@
+FROM python:3.12-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /srv/cvcloud
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt requirements-cloud.txt package.json ./
+RUN python -m pip install -r requirements.txt -r requirements-cloud.txt && npm install --ignore-scripts --no-audit --no-fund
+RUN groupadd --gid 10001 cvcloud && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin cvcloud
+COPY cloud/ ./cloud/
+COPY cvstudio_*.py generate.js index.html ./
+COPY vendor/cvstudio/app.css ./vendor/cvstudio/app.css
+COPY tests/cloud_postgres_integration.py ./tests/
+COPY tests/fixtures/cloud_cv_source.txt tests/fixtures/cloud_cv_parse.json ./tests/fixtures/
+RUN touch tests/__init__.py
+USER 10001:10001
+CMD ["python", "-m", "cloud.deploy.fixture_check"]
