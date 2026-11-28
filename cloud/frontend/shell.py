@@ -121,7 +121,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
     content.append(view)
     if enable_batch:
         batch=deepcopy(_one(source,"viewBatch"))
-        for key in ("batchAiQuickPanel","btnBatchDownload","batchTotalCost","batchJAStatus","batchJAConnBadge"):
+        for key in ("batchAiQuickPanel","batchTotalCost","batchJAStatus","batchJAConnBadge"):
             item=_one(batch,key)
             item.getparent().remove(item)
         _lock_summary_toggle(_one(batch,"batchSummaryToggle"))
@@ -130,7 +130,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         for item in batch.xpath(".//button"):
             if item.get("onclick")=="clearBatch()":
                 item.set("id","cloudBatchClear")
-            if item.get("id")=="btnBatchRun":
+            if item.get("id") in {"btnBatchRun","btnBatchDownload"}:
                 item.set("disabled","disabled")
         file_input=_one(batch,"batchFileInput")
         file_input.set("accept",".pdf,.docx,.txt")
@@ -150,7 +150,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         bootstrap=shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
         bootstrap.addprevious(script)
         options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
-        options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
+        options.text="Shared CV options apply when starting a batch. Download completed files individually or together."
     if enable_scoring:
         scoring = deepcopy(_one(source, "viewAppraiser"))
         for key in ("appraiserRouteBadge", "appraiserAiQuickHint", "appraiserSalary",
