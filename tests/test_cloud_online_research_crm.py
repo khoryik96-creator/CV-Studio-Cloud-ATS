@@ -100,5 +100,32 @@ class SandboxCRMTests(unittest.TestCase):
             self.submit()
         self.assertEqual(self.client.request_raw.call_count,1)
 
+class OAuthBindingTests(unittest.TestCase):
+    def test_pinned_identity_and_no_refresh(self):
+        from cloud.deploy.workspace_crm_binding import ApprovedSandbox,SandboxBindings
+        actor=Principal(str(uuid4()),str(uuid4()),"owner","")
+        approved=ApprovedSandbox(actor.tenant_id,"test",123,"https://api.jobadder.com/v2",1)
+        clock=Mock(return_value=1000)
+        factory=Mock()
+        bindings=SandboxBindings([approved],clock=clock,client_factory=factory)
+        response={"instance":"test","account":123,"api":approved.api,"token_type":"Bearer",
+                  "expires_in":3600,"access_token":"fictional-token-only"}
+        session=bindings.bind(actor,response,received_at=1000)
+        self.assertEqual(session.account_id,"test-123")
+        base,token=factory.call_args.args
+        self.assertEqual(base(),approved.api)
+        self.assertEqual(token(False),"fictional-token-only")
+        self.assertEqual(token(True),"")
+        clock.return_value=4600
+        self.assertEqual(token(False),"")
+        for changed in ({"account":124},{"instance":"live"},{"api":"https://evil.example/v2"},
+                        {"api":"https://other.jobadder.com/v2"},{"expires_in":1}):
+            with self.assertRaises(CRMUnavailable):
+                bindings.bind(actor,dict(response,**changed),received_at=clock.return_value)
+        with self.assertRaises(CRMUnavailable):
+            bindings.bind(actor,response,received_at=1000)
+        with self.assertRaises(ValueError):
+            SandboxBindings([approved,ApprovedSandbox(str(uuid4()),"test",123,approved.api,2)])
+
 if __name__=="__main__":
     unittest.main()
