@@ -15,6 +15,7 @@ ASSETS={
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
     "provider_settings.js": FRONTEND/"provider_settings.js",
+    "create_profile_cloud.js": FRONTEND/"create_profile_cloud.js",
     "reports_cloud.js": FRONTEND/"reports_cloud.js",
     "scoring_cloud.js": FRONTEND/"scoring_cloud.js",
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
@@ -22,7 +23,7 @@ ASSETS={
     "account_cloud.js": FRONTEND/"account_cloud.js",
     "usage_cloud.js": FRONTEND/"usage_cloud.js",
 }
-NAV=("Format","Batch","JDAnon","Company","Appraiser")
+NAV=("Format","Batch","JDAnon","Company","Appraiser","JACreate")
 TAGS=frozenset("div span button svg path circle ellipse h2 label input textarea select option p b strong small".split())
 ATTR=frozenset("id class style type title aria-label aria-hidden aria-pressed role disabled accept value placeholder for checked hidden multiple viewbox width height fill stroke stroke-width stroke-linecap stroke-linejoin d cx cy r rx ry".split())
 
@@ -49,11 +50,11 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
+def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
-    keep={"tab"+x for x in NAV}
+    keep={"tab"+x for x in NAV if x!="JACreate" or enable_profile}
     for node in list(nav):
         if node.get("id") not in keep:
             nav.remove(node)
@@ -65,6 +66,8 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                 enabled.add("tabAppraiser")
             if enable_reports:
                 enabled.update(("tabCompany", "tabJDAnon"))
+            if enable_profile:
+                enabled.add("tabJACreate")
             if node.get("id") not in enabled:
                 node.set("disabled","disabled")
                 node.set("title","Staging integration pending")
@@ -229,6 +232,24 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
             content.append(_clean(view))
         bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
         bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/reports_cloud.js", defer="defer"))
+    if enable_profile:
+        profile = deepcopy(_one(source, "viewJACreate"))
+        note = profile.xpath(".//div[@class='card-body']/p")[0]
+        note.clear()
+        note.text = "Upload the fictional CV and review the extracted details. Confirm before creating a profile in mocked JobAdder."
+        file = _one(profile, "jaCreateInput")
+        file.set("accept", ".txt,.pdf,.docx")
+        _one(profile, "jaCreateDrop")[2].text = "TXT, PDF or DOCX"
+        _one(profile, "btnJACreateAll").text = "Confirm reviewed profiles"
+        for button in profile.xpath(".//button[@onclick='clearJACreateQueue()']"):
+            button.set("id", "cloudProfileClear")
+        _one(profile, "jaCreateAllStatus").set("role", "status")
+        panel = _one(profile, "jaCreateList")
+        panel.addnext(html.fromstring('<div><button class="sec" id="cloudProfileHistory" type="button">Refresh JobAdder history</button><div id="cloudProfileAudit"></div></div>'))
+        profile.set("style", "display:none")
+        content.append(_clean(profile))
+        bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
+        bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/create_profile_cloud.js", defer="defer"))
     if enable_provider_settings:
         # Reuse only the main AI card, not the desktop settings drawer or
         # integration cards. Model choices must come from the cloud server.
@@ -311,7 +332,9 @@ def register_existing_ui(app, *, enable_batch=False):
     accounts_required={("/api/admin/accounts","GET"),("/api/admin/accounts/<uuid:user_id>/actions","POST")}
     scoring_required={("/api/scoring/jobs","GET"),("/api/scoring/jobs","POST"),("/api/scoring/jobs/<uuid:job_id>","GET")}
     report_routes = {("/api/" + slug + "/jobs", method) for slug in ("company-profile", "blind-jd") for method in ("GET", "POST")}
-    page=render_shell(enable_reports=report_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
+    profile_routes = {("/api/create-profile/settings","GET"),("/api/create-profile/prepare","POST"),
+                      ("/api/create-profile/jobs","POST"),("/api/create-profile/jobs","GET")}
+    page=render_shell(enable_profile=profile_routes.issubset(rules),enable_reports=report_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
         enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")

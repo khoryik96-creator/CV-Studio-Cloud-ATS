@@ -4,7 +4,7 @@ from cloud.modules import MODULES, SELECTED_MODULES
 
 class CloudFoundationTest(unittest.TestCase):
     def test_scope(self):
-        self.assertEqual(SELECTED_MODULES, {"cv_formatting", "cv_blinding", "cv_scoring", "company_profile", "blind_jd"})
+        self.assertEqual(SELECTED_MODULES, {"cv_formatting", "cv_blinding", "cv_scoring", "company_profile", "blind_jd", "create_profile"})
         self.assertEqual(len(MODULES), len({m.key for m in MODULES}))
 
     def test_no_legacy_routes_exposed(self):

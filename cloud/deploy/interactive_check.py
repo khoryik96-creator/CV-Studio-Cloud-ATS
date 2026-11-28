@@ -151,6 +151,69 @@ def check_document_reports(auth, other):
     print("Synthetic HTTPS Company Profile citations and Blind JD preservation passed", file=sys.stderr)
 
 
+def check_create_profile(document_id, auth, other):
+    from cloud.auth import Principal
+    from cloud.deploy.interactive import TENANT, USER, connect
+    from cloud.documents_jobs import DocumentJobs
+
+    base = "/api/create-profile"
+    endpoint = base + "/jobs"
+    write = {**auth, "Content-Type": "application/json"}
+    expect("GET", base + "/settings", 401)
+    settings = json.loads(expect("GET", base + "/settings", 200, headers=auth)[2])
+    assert settings == {"connected": True, "mode": "synthetic"}
+    source = json.dumps({"document_id": document_id})
+    expect("POST", base + "/prepare", 404, source, {**other, "Content-Type": "application/json"})
+    review = json.loads(expect("POST", base + "/prepare", 200, source, write)[2])
+    assert review["candidate"] == {"name": "AVERY EXAMPLE", "email": "avery@example.invalid"}
+    repo = DocumentJobs(connect)
+    principal = Principal(TENANT, USER, "recruiter", "")
+    with repo.scoped(principal) as (db, tenant, owner):
+        before = db.execute("""SELECT count(*) FROM cvcloud.jobadder_fixture_operations
+            WHERE tenant_id=%s AND owner_id=%s""", (tenant, owner)).fetchone()[0]
+    request_body = {
+        "document_id": document_id,
+        "idempotency_key": str(uuid4()),
+        "confirmation": review["confirmation"],
+        "confirmed": False,
+    }
+    expect("POST", endpoint, 400, json.dumps(request_body), write)
+    with repo.scoped(principal) as (db, tenant, owner):
+        assert db.execute("""SELECT count(*) FROM cvcloud.jobadder_fixture_operations
+            WHERE tenant_id=%s AND owner_id=%s""", (tenant, owner)).fetchone()[0] == before
+    request_body["confirmed"] = True
+    request_json = json.dumps(request_body)
+    job = json.loads(expect("POST", endpoint, 202, request_json, write)[2])["job_id"]
+    assert json.loads(expect("POST", endpoint, 202, request_json, write)[2])["job_id"] == job
+    path = endpoint + "/" + job
+    expect("GET", path, 404, headers=other)
+    assert wait_for_output(path, auth) == "succeeded"
+    report = json.loads(expect("GET", path, 200, headers=auth)[2])
+    assert report["attempted_at"] and report["result"]["outcome"] in ("created", "duplicate")
+
+    # Simulate loss of the local publication after the mock had committed its
+    # outcome, then verify that reconciliation reads the record without replay.
+    with repo.scoped(principal) as (db, tenant, owner):
+        db.execute("""UPDATE cvcloud.jobs SET state='needs_review',profile_result=NULL
+            WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, job))
+        if report["result"]["outcome"] == "created":
+            cv = db.execute("""SELECT cv FROM cvcloud.jobadder_fixture_candidates
+                WHERE tenant_id=%s AND id=%s""", (tenant, report["result"]["candidate_id"])).fetchone()[0]
+            assert cv == (ROOT / "tests/fixtures/cloud_cv_source.txt").read_bytes()
+    reconciled = json.loads(expect("POST", path + "/reconcile", 200, headers=auth)[2])
+    assert reconciled["result"] == report["result"] and reconciled["state"] == "succeeded"
+    request_body["idempotency_key"] = str(uuid4())
+    repeat = json.loads(expect("POST", endpoint, 202, json.dumps(request_body), write)[2])["job_id"]
+    duplicate_path = endpoint + "/" + repeat
+    assert wait_for_output(duplicate_path, auth) == "succeeded"
+    duplicate = json.loads(expect("GET", duplicate_path, 200, headers=auth)[2])["result"]
+    assert duplicate == {"candidate_id": None, "cv_uploaded": False, "outcome": "duplicate"}
+    with repo.scoped(principal) as (db, tenant, owner):
+        assert db.execute("SELECT count(*) FROM cvcloud.jobadder_fixture_candidates WHERE tenant_id=%s",
+                          (tenant,)).fetchone()[0] == 1
+    print("Mock JobAdder confirmation, CV upload, duplicate prevention and reconciliation passed", file=sys.stderr)
+
+
 def check_persistence(job_id):
     job_id = str(UUID(job_id))
     path = "/api/jobs/" + job_id
@@ -216,6 +279,7 @@ def main():
     check_blinding(doc, auth, other)
     check_scoring(doc, auth, other)
     check_document_reports(auth, other)
+    check_create_profile(doc, auth, other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     expect("POST","/api/auth/logout",200,headers=other)

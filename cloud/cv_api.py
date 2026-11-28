@@ -10,7 +10,7 @@ from cloud.private_storage import DOCX,StorageError
 
 CV_MODULES=frozenset({"cv_formatting","cv_blinding"})
 
-def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False,enable_reports=False):
+def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False,enable_reports=False,create_profile=None):
     def protected(*,write=False):
         def decorate(fn):
             @wraps(fn)
@@ -113,6 +113,43 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
 
         for module, slug in MODULES.items():
             register_report(module, "/api/" + slug + "/jobs")
+
+    if create_profile is not None:
+        @app.get("/api/create-profile/settings")
+        @protected()
+        def profile_settings(principal):
+            return jsonify(connected=bool(create_profile.settings(principal)), mode="synthetic")
+
+        @app.post("/api/create-profile/prepare")
+        @protected(write=True)
+        def prepare_profile(principal):
+            request.max_content_length = 4096
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or set(body) != {"document_id"}:
+                return jsonify(error="invalid_request"), 400
+            return jsonify(create_profile.prepare(principal, uid(body["document_id"])))
+
+        @app.post("/api/create-profile/jobs")
+        @protected(write=True)
+        def confirm_profile(principal):
+            request.max_content_length = 4096
+            body = request.get_json(silent=True)
+            if (not isinstance(body, dict) or set(body) != {"document_id", "confirmed", "confirmation", "idempotency_key"}
+                    or body["confirmed"] is not True):
+                return jsonify(error="explicit_confirmation_required"), 400
+            job_id = create_profile.confirm(principal, uid(body["document_id"]), uid(body["idempotency_key"]), body["confirmation"])
+            return jsonify(job_id=job_id), 202
+
+        @app.get("/api/create-profile/jobs")
+        @app.get("/api/create-profile/jobs/<uuid:job_id>")
+        @protected()
+        def profile_reports(principal, job_id=None):
+            return jsonify(create_profile.reports(principal, str(job_id) if job_id is not None else None))
+
+        @app.post("/api/create-profile/jobs/<uuid:job_id>/reconcile")
+        @protected(write=True)
+        def reconcile_profile(principal, job_id):
+            return jsonify(create_profile.reconcile(principal, str(job_id)))
 
     @app.get("/api/jobs")
     @app.get("/api/documents")

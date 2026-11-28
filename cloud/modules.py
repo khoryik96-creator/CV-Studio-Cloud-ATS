@@ -13,6 +13,7 @@ MODULES = (
     Module("cv_scoring", True, "Evaluate against job requirements"),
     Module("company_profile", True, "Company profile research"),
     Module("blind_jd", True, "Anonymise job descriptions"),
+    Module("create_profile", True, "Create a reviewed JobAdder candidate profile"),
     Module("jd_generation", False, "Pending product decision"),
     Module("salary_comparison", False, "Preserved"),
     Module("linkedin_sourcer", False, "Preserved"),

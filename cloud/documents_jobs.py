@@ -61,12 +61,14 @@ class DocumentJobs:
                 FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(document_id))).fetchone()
 
-    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options(), scoring=None, report=None):
+    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options(), scoring=None, report=None, profile=None):
         if module not in SELECTED_MODULES or not isinstance(options,Options):
             raise ValueError("Module or options invalid")
         options.validate(module)
         if report is not None and module not in {"blind_jd", "company_profile"}:
             raise ValueError("Invalid report module")
+        if (module == "create_profile") != (profile is not None):
+            raise ValueError("Create Profile requires confirmation")
         document_id, key = uid(document_id), uid(idempotency_key)
         if scoring is not None:
             from cloud.scoring_contract import rubric
@@ -97,6 +99,11 @@ class DocumentJobs:
                         WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,prior[0])).fetchone()[0]
                     if prior_report != report:
                         raise JobConflict("Idempotency key already used for different report options")
+                if module == "create_profile":
+                    prior_profile = conn.execute("""SELECT profile_confirmation FROM cvcloud.jobs
+                        WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,prior[0])).fetchone()[0]
+                    if prior_profile != profile:
+                        raise JobConflict("Idempotency key already used for a different confirmation")
                 return prior[0]
             doc=conn.execute("SELECT id FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s",(tenant,user,document_id)).fetchone()
             if not doc:
@@ -119,6 +126,10 @@ class DocumentJobs:
                 from psycopg.types.json import Jsonb
                 conn.execute("""UPDATE cvcloud.jobs SET report_options=%s
                     WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (Jsonb(report),tenant,user,job_id))
+            if profile is not None:
+                from psycopg.types.json import Jsonb
+                conn.execute("""UPDATE cvcloud.jobs SET profile_confirmation=%s
+                    WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (Jsonb(profile),tenant,user,job_id))
             return job_id
 
     def job(self, principal, job_id):

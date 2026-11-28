@@ -14,6 +14,7 @@ x-fixture: &fixture
   cpus: 2
   pids_limit: 128
 x-runtime: &runtime
+  CVCLOUD_FIXTURE_JOBADDER_KEY: local-synthetic-jobadder-fixture-key
   CVCLOUD_TEST_RUNTIME_DSN: postgresql://cvcloud_runtime:synthetic-runtime-only@db:5432/cvcloud_test
 services:
   db:
@@ -35,6 +36,7 @@ services:
     <<: *fixture
     command: ["python","-m","cloud.deploy.interactive","seed"]
     environment:
+      CVCLOUD_FIXTURE_JOBADDER_KEY: local-synthetic-jobadder-fixture-key
       CVCLOUD_TEST_DSN: postgresql://postgres:synthetic-ci-only@db:5432/cvcloud_test
     depends_on:
       db:

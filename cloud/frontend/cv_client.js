@@ -154,6 +154,27 @@
     async function documentReports(module,jobId=null,{signal}={}){
       return json(reportPath(module)+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
     }
+    const profileBase="/api/create-profile";
+    async function profileSettings({signal}={}){
+      return json(profileBase+"/settings",{expected:active(),signal});
+    }
+    async function prepareProfile(documentId,{signal}={}){
+      const document_id=id(documentId);
+      const value=await json(profileBase+"/prepare",{expected:active(),method:"POST",write:true,signal,
+        contentType:"application/json",body:JSON.stringify({document_id})});
+      return {candidate:value.candidate,intent:{document_id,confirmation:value.confirmation,idempotency_key:id(uuid())}};
+    }
+    async function confirmProfile(intent,{signal}={}){
+      const response=await json(profileBase+"/jobs",{expected:active(),method:"POST",write:true,signal,
+        contentType:"application/json",body:JSON.stringify({...intent,confirmed:true})});
+      return id(response.job_id);
+    }
+    async function profileReports(jobId=null,{signal}={}){
+      return json(profileBase+"/jobs"+(jobId===null?"":"/"+id(jobId)),{expected:active(),signal});
+    }
+    async function reconcileProfile(jobId,{signal}={}){
+      return json(profileBase+"/jobs/"+id(jobId)+"/reconcile",{expected:active(),method:"POST",write:true,signal});
+    }
     async function history(kind,{before=null,limit=25,signal}={}){
       const expected=active();
       if(!["jobs","documents"].includes(kind)||!Number.isInteger(limit)||limit<1||limit>50)throw new CloudError("invalid_history");
@@ -189,7 +210,7 @@
       if(!blob.size||blob.size>MAX_BYTES)throw new CloudError("invalid_document_response");
       return {blob,requiresReview:flag==="1",filename:flag==="1"?"cv-review.docx":"cv.docx"};
     }
-    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,prepareScoring,submitScoring,scoringReports,prepareReport,submitReport,documentReports,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount,aiUsage});
+    return Object.freeze({hydrate,logout,clear,upload,prepare,submit,status,preview,download,prepareScoring,submitScoring,scoringReports,prepareReport,submitReport,documentReports,profileSettings,prepareProfile,confirmProfile,profileReports,reconcileProfile,providerStatus,configureProvider,disableProvider,history,accounts,changeAccount,aiUsage});
   }
   return Object.freeze({create,CloudError,options,source});
 });
