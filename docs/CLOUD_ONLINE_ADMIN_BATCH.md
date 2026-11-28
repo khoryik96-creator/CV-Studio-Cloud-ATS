@@ -20,3 +20,5 @@ PR #51 merges. Add operator-only budget provisioning with explicit pricing
 and spend controls, and complete end-to-end worker tests using injected
 fictional transport before any live egress or provider approval. No real
 candidate data, live external calls or production routing.
+
+Added transactional admin role installation tied to exact workspace migration and grant signatures, with explicit denial of direct table/column access and internal lock-helper execution. Prepared a reusable disposable PostgreSQL acceptance helper for tenant isolation, forbidden direct SQL, role restrictions, suspension/reactivation, stale revision and audit checks. It is not wired into CI yet: integrate with the merged #51 disposable database lifecycle, including safe cleanup of the added role. Session concurrency and real worker output testing remain open.
