@@ -34,9 +34,10 @@ def build_web():
     auth_connect=connection_factory(config)
     document_connect=startup_step("document-credentials",lambda:service_connection("document"))
     provider_connect=startup_step("provider-credentials",lambda:service_connection("provider"))
+    admin_connect=startup_step("admin-credentials",lambda:service_connection("admin"))
     return startup_step("workspace-composition",lambda:assemble_workspace(
         config=config,auth_connect=auth_connect,document_connect=document_connect,
-        provider_connect=provider_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue))
+        provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue))
 
 def web():
     from waitress import serve
