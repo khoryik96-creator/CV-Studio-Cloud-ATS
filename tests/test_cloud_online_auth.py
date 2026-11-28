@@ -50,3 +50,62 @@ class OnlineAuthTest(unittest.TestCase):
             environ_overrides={"REMOTE_ADDR":PROXY}).status_code,503)
         self.assertEqual(client.post("/parse",base_url=ORIGIN,headers=headers,
             environ_overrides={"REMOTE_ADDR":PROXY}).status_code,404)
+
+
+class OnlineAuthPostgresTest(unittest.TestCase):
+    def test_dedicated_role_and_session(self):
+        import os
+        if os.environ.get("CVCLOUD_REQUIRE_ONLINE_AUTH_DB") != "1":
+            self.skipTest("Explicit disposable PostgreSQL test required")
+        import secrets
+        import psycopg
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        from cloud.auth import password_hash
+        from cloud.deploy.online_auth import OnlineAuthConfig, build_online_auth
+        admin_dsn=os.environ["CVCLOUD_TEST_DSN"]
+        parsed=conninfo_to_dict(admin_dsn)
+        if parsed.get("dbname")!="cvcloud_test" or parsed.get("host")!="127.0.0.1":
+            self.fail("Refusing non-disposable CI database")
+        root=Path(__file__).resolve().parents[1]
+        pw=secrets.token_hex(24)
+        created_role=created_db=False
+        admin=psycopg.connect(admin_dsn,autocommit=True)
+        try:
+            from psycopg import sql
+            admin.execute(sql.SQL("CREATE ROLE cvcloud_auth LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION PASSWORD {}").format(sql.Literal(pw)))
+            created_role=True
+            admin.execute("CREATE DATABASE cvcloud_online")
+            created_db=True
+            online_admin=make_conninfo(admin_dsn,dbname="cvcloud_online")
+            with psycopg.connect(online_admin,autocommit=True) as db:
+                for path in ("cloud/migrations/001_auth.sql","cloud/migrations/004_auth_epoch.sql","cloud/deploy/online_auth_grants.sql"):
+                    db.execute((root/path).read_text(encoding="utf-8"),prepare=False)
+                tenant="10000000-0000-4000-8000-000000000001"
+                user="20000000-0000-4000-8000-000000000001"
+                db.execute("INSERT INTO cvcloud.tenants (id,slug) VALUES (%s,'a')",(tenant,))
+                db.execute("INSERT INTO cvcloud.users (tenant_id,id,email_normalized,password_hash,role) VALUES (%s,%s,'user@example.test',%s,'owner')",(tenant,user,password_hash(PASSWORD)))
+            runtime=make_conninfo(admin_dsn,dbname="cvcloud_online",user="cvcloud_auth",password=pw)
+            def connect():
+                return psycopg.connect(runtime)
+            app=build_online_auth(config=OnlineAuthConfig(ORIGIN,PROXY,pw),connect=connect)
+            client=Client(app,Response)
+            headers={"Origin":ORIGIN,"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https"}
+            peer={"REMOTE_ADDR":PROXY}
+            self.assertEqual(client.post("/api/auth/login",base_url=ORIGIN,headers=headers,environ_overrides=peer,
+                json={"tenant":"a","email":"user@example.test","password":PASSWORD}).status_code,200)
+            self.assertEqual(client.get("/api/auth/me",base_url=ORIGIN,headers=headers,environ_overrides=peer).json["role"],"owner")
+            for statement in ("UPDATE cvcloud.users SET role='recruiter'","UPDATE cvcloud.tenants SET active=false"):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    with connect() as db:
+                        db.execute(statement)
+            with psycopg.connect(online_admin) as db:
+                db.execute("UPDATE cvcloud.users SET active=false")
+            self.assertEqual(client.get("/api/auth/me",base_url=ORIGIN,headers=headers,environ_overrides=peer).status_code,401)
+        finally:
+            try:
+                if created_db:
+                    admin.execute("DROP DATABASE cvcloud_online WITH (FORCE)")
+                if created_role:
+                    admin.execute("DROP ROLE cvcloud_auth")
+            finally:
+                admin.close()
