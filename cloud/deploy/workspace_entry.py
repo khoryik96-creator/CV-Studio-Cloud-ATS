@@ -37,7 +37,7 @@ def build_web():
     admin_connect=startup_step("admin-credentials",lambda:service_connection("admin"))
     return startup_step("workspace-composition",lambda:assemble_workspace(
         config=config,auth_connect=auth_connect,document_connect=document_connect,
-        provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue))
+        provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue,enable_blind_jd=True))
 
 def web():
     from waitress import serve
@@ -66,7 +66,7 @@ def worker():
             verify_service_role(connect,service)
         factory=partial(assemble_worker,worker_connect=worker_connect,
             provider_connect=provider_connect,storage_root=STORAGE,cipher=cipher,
-            catalogue=catalogue,concurrency=concurrency())
+            catalogue=catalogue,concurrency=concurrency(),enable_blind_jd=True)
         scheduler=WorkspaceScheduler(scheduler_connect=scheduler_connect,
             runtime_factory=lambda principals:factory(principals=principals))
         while not stop.is_set():

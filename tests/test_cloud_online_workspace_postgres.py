@@ -83,14 +83,23 @@ class WorkspacePostgresTest(unittest.TestCase):
                 owner_connect=owner,admin_connect=lambda:connect(ADMIN_ROLE),
                 auth_connect=lambda:connect(online_init.AUTH),
                 password=credentials[ADMIN_ROLE],owner_a=a,owner_b=b)
+            from cloud.deploy.workspace_report_install import install as install_reports
+            from cloud.deploy.workspace_budget import change_limit
+            install_reports(owner)
+            install_reports(owner)
+            for role,statement in ((ROLES["document"],"UPDATE cvcloud.jobs SET report_result=NULL"),(ROLES["worker"],"UPDATE cvcloud.jobs SET report_options=NULL")):
+                with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                    with connect(role) as conn:
+                        conn.execute(statement)
+            self.assertEqual(change_limit(owner,tenant="one",expected=None,new_limit=100000),(100000,0,0))
+            with self.assertRaises(ValueError):
+                change_limit(owner,tenant="one",expected=None,new_limit=200000)
+            with self.assertRaises(ValueError):
+                change_limit(owner,tenant="one",expected=1,new_limit=200000)
             doc=OnlineDocumentJobs(lambda:connect(ROLES["document"]))
             worker=OnlineDocumentJobs(lambda:connect(ROLES["worker"]))
             writer=OnlineDocumentJobs(lambda:connect(ROLES["provider"]))
             reader=OnlineDocumentJobs(lambda:connect(ROLES["provider_reader"]))
-            # Test budget explicitly configured by the disposable schema owner.
-            with owner() as c:
-                c.execute("SELECT set_config('cvcloud.tenant_id',%s,true)",(a.tenant_id,))
-                c.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,100000)",(a.tenant_id,))
             cipher=SecretCipher({"test":secrets.token_bytes(32)},"test")
             policy=ModelPolicy("deepseek","fictional-model",100,200,200000,32000)
             catalogue=ProviderCatalogue([policy])
@@ -112,7 +121,7 @@ class WorkspacePostgresTest(unittest.TestCase):
                 app=assemble_workspace(config=OnlineAuthConfig("https://cvstudio.hyplug.co","127.0.0.1",credentials[online_init.AUTH]),
                     auth_connect=lambda:connect(online_init.AUTH),document_connect=lambda:connect(ROLES["document"]),
                     provider_connect=lambda:connect(ROLES["provider"]),admin_connect=lambda:connect(ADMIN_ROLE),storage_root=Path(tmp).resolve(),
-                    cipher=cipher,catalogue=catalogue)
+                    cipher=cipher,catalogue=catalogue,enable_blind_jd=True)
                 with app.test_client() as client:
                     headers={"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https"}
                     self.assertEqual(client.get("/cloud-ui",base_url="https://cvstudio.hyplug.co",headers=headers).status_code,200)
@@ -130,7 +139,12 @@ class WorkspacePostgresTest(unittest.TestCase):
                 ledger=AIBudget(worker)
                 op=str(uuid4())
                 ledger.reserve(a,lease,operation_id=op,provider=policy.provider,model=policy.model,estimated_microusd=10)
+                self.assertEqual(change_limit(owner,tenant="one",expected=100000,new_limit=0),(0,10,0))
+                from cloud.ai_budget import BudgetDenied
+                with self.assertRaises(BudgetDenied):
+                    ledger.reserve(a,lease,operation_id=str(uuid4()),provider=policy.provider,model=policy.model,estimated_microusd=1)
                 self.assertTrue(ledger.settle(a,lease,operation_id=op,actual_microusd=5))
+                self.assertEqual(change_limit(owner,tenant="one",expected=0,new_limit=100000),(100000,0,5))
                 self.assertTrue(leases.finish(a,lease,"failed"))
                 self.assertEqual(doc.job(a,job)[2],"failed")
                 self.assertEqual(doc.history(a,kind="jobs")["items"][0]["job_id"],job)

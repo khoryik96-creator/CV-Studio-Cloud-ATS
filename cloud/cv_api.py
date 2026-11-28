@@ -10,7 +10,7 @@ from cloud.private_storage import DOCX,StorageError
 
 CV_MODULES=frozenset({"cv_formatting","cv_blinding"})
 
-def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False,enable_reports=False,create_profile=None):
+def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False,enable_reports=False,enable_blind_jd=False,create_profile=None):
     def protected(*,write=False):
         def decorate(fn):
             @wraps(fn)
@@ -86,7 +86,7 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
                 return jsonify(error="not_found"), 404
             return jsonify(result)
 
-    if enable_reports:
+    if enable_reports or enable_blind_jd:
         from cloud.document_reports import MODULES, options as report_options, reports
 
         def register_report(module, route):
@@ -112,7 +112,8 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
             app.add_url_rule(route, module + "_submit", submit_report, methods=["POST"])
 
         for module, slug in MODULES.items():
-            register_report(module, "/api/" + slug + "/jobs")
+            if enable_reports or module == "blind_jd":
+                register_report(module, "/api/" + slug + "/jobs")
 
     if create_profile is not None:
         @app.get("/api/create-profile/settings")

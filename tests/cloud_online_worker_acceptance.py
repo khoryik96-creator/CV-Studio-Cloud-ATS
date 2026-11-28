@@ -27,6 +27,11 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
     jd_text=extract(jd.encode(),"text/plain").text
     expected=prepare_source(source)
     scoring_system,scoring_user=prepare(cv_text,jd_text,rubric)
+    from cloud.deploy.report_fixtures import COMPANY,completion as report_completion
+    from cloud.document_reports import reports as document_reports
+    blind_source=(fixtures/"cloud_cv_blind_jd.txt").read_text(encoding="utf-8")
+    blind_text=extract(blind_source.encode(),"text/plain").text
+    complete_report=report_completion(blind_text)
     calls=[]
     def factory(secret):
         test.assertEqual(secret,"fictional-key")
@@ -42,7 +47,9 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
                 calls.append("assess")
                 return Completion(json.dumps({"assessments":[{"id":"ansible","status":"evidenced",
                     "quote":"Automated recovery checks with Ansible.","note":"Explicit automation evidence."}]}),100,100)
-            raise AssertionError("Unexpected fixture request; no external transport")
+            result=complete_report(system,prompt)
+            calls.append("blind_jd")
+            return result
         return fake
     repository=OnlineDocumentJobs(document_connect)
     storage=PrivateStorage(storage_root)
@@ -53,7 +60,7 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
     cv_id,jd_id=put(source),put(jd)
     runtime=assemble_worker(worker_connect=worker_connect,provider_connect=provider_connect,
         storage_root=storage_root,cipher=cipher,catalogue=catalogue,principals=(principal,),
-        concurrency=1,transport_factory=factory)
+        concurrency=1,transport_factory=factory,enable_blind_jd=True)
     outputs=JobOutputs(repository,storage)
     for module in ("cv_formatting","cv_blinding","cv_scoring"):
         options={"scoring":(jd_id,rubric)} if module=="cv_scoring" else {}
@@ -74,5 +81,14 @@ def verify_worker_acceptance(test, *, principal, other, storage_root, document_c
                 test.assertTrue(output.requires_review)
             with ZipFile(io.BytesIO(output.document)) as package:
                 test.assertIn("word/document.xml",package.namelist())
-    test.assertEqual(calls,["parse","parse","blind","assess"])
+    blind_id=put(blind_source)
+    job=repository.enqueue(principal,document_id=blind_id,module="blind_jd",
+        idempotency_key=str(uuid4()),report={"identifiers":[COMPANY],"technologies":["Ansible"]})
+    test.assertEqual(runtime.tick(),("completed",))
+    report=document_reports(repository,principal,"blind_jd",job)
+    test.assertEqual(report["state"],"succeeded")
+    test.assertNotIn(COMPANY,json.dumps(report["result"]))
+    test.assertIn("Ansible",json.dumps(report["result"]))
+    test.assertIsNone(document_reports(repository,other,"blind_jd",job))
+    test.assertEqual(calls,["parse","parse","blind","assess","blind_jd"])
     test.assertEqual(runtime.tick(),("idle",))

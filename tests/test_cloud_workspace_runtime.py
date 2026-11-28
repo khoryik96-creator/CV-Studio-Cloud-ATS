@@ -54,6 +54,11 @@ class WorkspaceRuntimeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     load_policy()
 
+    def test_blind_jd_candidate_separate_from_research(self):
+        candidate=render_shell(online_candidate=True,enable_blind_jd=True)
+        self.assertIn(b'id="viewJDAnon"',candidate)
+        self.assertNotIn(b'id="viewCompany"',candidate)
+
     def test_candidate_ui_does_not_enable_unverified_modules(self):
         self.assertIn(b"Cloud staging",render_shell())
         candidate=render_shell(online_candidate=True,enable_scoring=True,enable_batch=True)
