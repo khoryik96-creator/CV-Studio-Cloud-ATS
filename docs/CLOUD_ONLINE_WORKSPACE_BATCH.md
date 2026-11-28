@@ -4,14 +4,20 @@ This branch is work in progress and must not be deployed. It reuses the
 existing document services and original cloud UI rather than exposing the
 synthetic fixture or the legacy desktop server.
 
+Current branch: einstein/online-workspace-batch, based on the merged CI policy.
+Previous einstein/online-document-workspace branch is retained as history only.
+No public entry point, provider calls or VPS operations are authorized.
+
 ## Acceptance checklist for one cohesive PR
 
-- [ ] Apply ordered document, job, output, budget, provider and account
-  migrations in an explicitly dedicated online database; record migration
-  versions and refuse unmarked databases. Preserve existing authentication.
+- [x] Implement ordered transactional workspace migration extension with recorded
+  SHA-256 history and marked-auth-schema guard. No real database has been migrated.
+- [ ] Verify migrations and repeat initialization in disposable PostgreSQL.
 - [ ] Provision distinct restricted document, admin, provider and worker
   roles. Verify their actual grants and prohibit superuser, role inheritance,
-  auth password access and cross-tenant document access.
+  auth password access and cross-tenant document access. Startup guard and
+  role identity checks implemented; narrow SQL row-lock helpers and actual
+  grants are still required.
 - [x] Begin internal composition of authenticated CV formatting, blinding,
   scoring, provider settings, account management, usage, history and batch
   controls, using the existing service implementations.
@@ -20,6 +26,8 @@ synthetic fixture or the legacy desktop server.
   keyring. No paid provider request during startup or CI.
 - [ ] Implement bounded trusted worker roster discovery and supervision,
   including expiry recovery, graceful shutdown and heartbeat readiness.
+  Bounded identity-only scheduler function/roster contract implemented;
+  scheduler grant, recurring runtime and real-DB testing remain.
 - [ ] Mount persistent private document storage with access for web/worker
   only; enforce existing admission limits and plan retention, orphan
   reconciliation and backup/restore.
