@@ -22,7 +22,7 @@ class SyntheticEnvironment:
     app: object
     worker: WorkerRuntime
 
-def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,concurrency=1,enable_batch=False):
+def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_source,fixture_answer,concurrency=1,enable_batch=False,strict_upload=False):
     """Run one known fictional fixture through real storage/queue/renderer.
 
     A worker may accept only the exact supplied fixture text after the engine's
@@ -39,6 +39,9 @@ def compose_synthetic(*,connect,storage_root,principals,public_origin,fixture_so
     repo=DocumentJobs(connect)
     storage=PrivateStorage(storage_root)
     uploads=UploadService(repo,storage)
+    if strict_upload:
+        from cloud.deploy.fixture_upload import FixtureUpload
+        uploads=FixtureUpload(uploads,fixture_source)
     outputs=JobOutputs(repo,storage)
     workers=WorkerLeases(repo)
     ledger=AIBudget(repo)

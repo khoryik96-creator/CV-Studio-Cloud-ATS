@@ -1,0 +1,19 @@
+name: Cloud interactive synthetic container
+on:
+  pull_request:
+    branches: [master]
+    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-interactive-container.yml']
+  push:
+    branches: [master]
+    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-interactive-container.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  interactive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sh -n cloud/deploy/interactive-smoke.sh
+      - run: sh cloud/deploy/interactive-smoke.sh
