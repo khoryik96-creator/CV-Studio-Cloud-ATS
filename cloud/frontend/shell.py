@@ -50,6 +50,11 @@ def _clean(node):
         node.set("type","button")
     return node
 
+def _lock_summary_toggle(toggle):
+    toggle.set("disabled", "disabled")
+    toggle.attrib.pop("checked", None)
+    toggle.tail = (toggle.tail or "").rstrip() + " · Locked (cloud summary unavailable)"
+
 def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_blind_jd=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False,online_candidate=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
@@ -82,11 +87,10 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                     raise ValueError("Original scoring label missing")
                 labels[0].text="CV Scoring"
     view=deepcopy(_one(source,"viewFormat"))
-    for key in ("singleAiQuickPanel","singleSummaryToggle","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
+    for key in ("singleAiQuickPanel","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
         node=_one(view,key)
-        if key=="singleSummaryToggle":
-            node=node.getparent()
         node.getparent().remove(node)
+    _lock_summary_toggle(_one(view,"singleSummaryToggle"))
     for node in view.xpath(".//*[@data-cv-open-ready]"):
         node.getparent().remove(node)
     _one(view,"fileInput").set("accept",".pdf,.docx,.txt")
@@ -117,11 +121,10 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
     content.append(view)
     if enable_batch:
         batch=deepcopy(_one(source,"viewBatch"))
-        for key in ("batchAiQuickPanel","batchSummaryToggle","btnBatchDownload","batchTotalCost","batchTimer","batchJAStatus","batchJAConnBadge"):
+        for key in ("batchAiQuickPanel","btnBatchDownload","batchTotalCost","batchJAStatus","batchJAConnBadge"):
             item=_one(batch,key)
-            if key=="batchSummaryToggle":
-                item=item.getparent()
             item.getparent().remove(item)
+        _lock_summary_toggle(_one(batch,"batchSummaryToggle"))
         for item in batch.xpath(".//*[@data-cv-open-ready]"):
             item.getparent().remove(item)
         for item in batch.xpath(".//button"):

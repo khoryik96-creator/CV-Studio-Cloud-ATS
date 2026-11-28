@@ -11,7 +11,7 @@ class TestCvApi(unittest.TestCase):
         self.doc,self.job=str(uuid4()),str(uuid4())
         self.uploads.upload.return_value=self.doc
         self.repo.enqueue.return_value=self.job
-        self.repo.job.return_value=(self.job,"cv_formatting","queued",self.doc)
+        self.repo.job.return_value=(self.job,"cv_formatting","queued",self.doc,2300)
         self.client=create_app(auth_store=Store(),public_origin=ORIGIN,cv_services=(self.uploads,self.repo,self.outputs)).test_client()
     def login(self):
         self.assertEqual(self.client.post("/api/auth/login",base_url=ORIGIN,headers={"Origin":ORIGIN},
@@ -35,7 +35,10 @@ class TestCvApi(unittest.TestCase):
         self.assertEqual(self.repo.enqueue.call_args.kwargs["options"].alignment,"justify")
         for bad in (dict(body,module="jobadder"),dict(body,tenant_id="other"),dict(body,neutral_gender=True)):
             self.assertEqual(self.client.post("/api/jobs",base_url=ORIGIN,headers=self.headers,json=bad).status_code,400)
-        self.assertEqual(self.client.get("/api/jobs/"+self.job,base_url=ORIGIN).json["state"],"queued")
+        status=self.client.get("/api/jobs/"+self.job,base_url=ORIGIN).json
+        self.assertEqual((status["state"],status["elapsed_ms"]),("queued",2300))
+        self.assertEqual(self.repo.job.call_args.args[1:], (self.job,))
+        self.assertEqual(self.repo.job.call_args.kwargs, {"include_elapsed": True})
     def test_review_download(self):
         self.login()
         self.outputs.download.return_value=Download(b"fictional",True)

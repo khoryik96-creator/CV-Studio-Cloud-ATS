@@ -68,6 +68,20 @@ class TestPostgres(unittest.TestCase):
                 VALUES (%s,%s,%s,%s,10,%s,true)""", (tenant,owner,jobs[0],str(uuid4()),"b"*64))
         self.assertIsNotNone(self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4())))
 
+    def test_cv_job_elapsed_is_owner_scoped_and_stops_at_completion(self):
+        principal, other = self.principals
+        doc = self.repo.register_document(principal, media_type="text/plain", byte_size=10, sha256="a"*64)
+        job = self.repo.enqueue(principal, document_id=doc, module="cv_formatting", idempotency_key=str(uuid4()))
+        with self.repo.scoped(principal) as (conn, tenant, owner):
+            conn.execute("""UPDATE cvcloud.jobs SET created_at=statement_timestamp()-interval '5 seconds'
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, job))
+        self.assertGreaterEqual(self.repo.job(principal, job, include_elapsed=True)[4], 5000)
+        self.assertIsNone(self.repo.job(other, job, include_elapsed=True))
+        with self.repo.scoped(principal) as (conn, tenant, owner):
+            conn.execute("""UPDATE cvcloud.jobs SET state='needs_review', updated_at=created_at+interval '2.5 seconds'
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, job))
+        self.assertEqual(self.repo.job(principal, job, include_elapsed=True)[4], 2500)
+
     def test_fenced_worker_lifecycle(self):
         from cloud.worker_leases import WorkerLeases, Lease
         a,b=self.principals

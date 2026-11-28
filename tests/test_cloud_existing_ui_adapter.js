@@ -22,7 +22,7 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
      if(scoringAttempt===2)return response({job_id:"bad"},202);
      return response({job_id:JOB},202);
    }
-   if(path==="/api/jobs/"+JOB)return response({job_id:JOB,document_id:DOC,module:"cv_blinding",state:"needs_review"},forbid?401:200);
+   if(path==="/api/jobs/"+JOB)return response({job_id:JOB,document_id:DOC,module:"cv_blinding",state:"needs_review",elapsed_ms:61500},forbid?401:200);
    if(path==="/api/jobs/"+JOB+"/preview?review=1")return response({job_id:JOB,requires_review:true,paragraphs:["Fictional <script>"]});
    if(path==="/api/jobs/"+JOB+"/preview")return response({},409);
    if(path==="/api/jobs/"+JOB+"/download?review=1")return new Response(new Blob(["fictional-word"]),{headers:{"Content-Type":MIME,"X-CV-Review-Required":"1"}});
@@ -50,7 +50,9 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  const scoringCalls=calls.filter(x=>x.path==="/api/scoring/jobs");
  assert.equal(scoringCalls.length,3);
  assert.ok(scoringCalls.every(x=>x.init.body===scoringCalls[0].init.body));
- assert.equal((await client.status(JOB)).state,"needs_review");
+ const durableStatus=await client.status(JOB);
+ assert.equal(durableStatus.state,"needs_review");
+ assert.equal(durableStatus.elapsed_ms,61500);
  await assert.rejects(client.preview(JOB),/conflict_or_review_required/);
  assert.equal((await client.preview(JOB,{review:true})).paragraphs[0],"Fictional <script>");
  await assert.rejects(client.download(JOB),/conflict_or_review_required/);
@@ -64,12 +66,12 @@ function response(body,status=200,headers={}){return new Response(JSON.stringify
  }
  const fakeDoc={getElementById:k=>nodes[k]};
  let submissionsCount=0,downloads=0,review=false;
- const fakeClient={upload:async()=>DOC,prepare:()=>({idempotency_key:KEY}),submit:async()=>{submissionsCount++;if(submissionsCount===1)throw Error("unconfirmed");return JOB;},status:async()=>({job_id:JOB,module:"cv_blinding",state:"needs_review"}),download:async()=>({blob:new Blob(["word"]),requiresReview:true})};
+ const fakeClient={upload:async()=>DOC,prepare:()=>({idempotency_key:KEY}),submit:async()=>{submissionsCount++;if(submissionsCount===1)throw Error("unconfirmed");return JOB;},status:async()=>({job_id:JOB,module:"cv_blinding",state:"needs_review",elapsed_ms:61500}),download:async()=>({blob:new Blob(["word"]),requiresReview:true})};
  const args={document:fakeDoc,client:fakeClient,readOptions:()=>({}),readInputMode:()=>"paste",saveDocument:async()=>downloads++,confirmReview:async()=>review};
  nodes.btnFormat.onclick=()=>{};assert.throws(()=>bind(args),/Remove desktop handlers/);delete nodes.btnFormat.onclick;
  const binding=bind(args);
  await nodes.btnBlind.listener();assert.equal(nodes.btnBlind.disabled,true);assert.equal(submissionsCount,1);
- await binding.resumeSubmission();assert.equal(submissionsCount,2);assert.equal(nodes.btnDocx.disabled,false);assert.equal(nodes.progressFill.style.width,"100%");assert.equal(nodes.pstep3label.textContent,"Review required");
+ await binding.resumeSubmission();assert.equal(submissionsCount,2);assert.equal(nodes.btnDocx.disabled,false);assert.equal(nodes.progressFill.style.width,"100%");assert.equal(nodes.pstep3label.textContent,"Review required");assert.equal(nodes.progressTimer.textContent,"1m 01s");
  await nodes.btnDocx.listener();assert.equal(downloads,0);review=true;await nodes.btnDocx.listener();assert.equal(downloads,1);
  binding.dispose();assert.equal(nodes.cvInput.value,"");assert.equal(nodes.btnDocx.listener,null);
  const pending=bind({...args,client:{...fakeClient,upload:async()=>{throw Error("uncertain upload");}}});

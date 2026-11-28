@@ -170,10 +170,10 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
     @app.get("/api/jobs/<uuid:job_id>")
     @protected()
     def status(principal,job_id):
-        row=repository.job(principal,str(job_id))
+        row=repository.job(principal,str(job_id),include_elapsed=True)
         if not row:
             return jsonify(error="not_found"),404
-        return jsonify(job_id=row[0],module=row[1],state=row[2],document_id=row[3])
+        return jsonify(job_id=row[0],module=row[1],state=row[2],document_id=row[3],elapsed_ms=row[4])
 
     @app.get("/api/jobs/<uuid:job_id>/preview")
     @protected()
