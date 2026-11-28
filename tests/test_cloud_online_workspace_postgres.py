@@ -90,6 +90,8 @@ class WorkspacePostgresTest(unittest.TestCase):
             from cloud.deploy.workspace_crm_install import install as install_crm
             install_crm(owner)
             install_crm(owner)
+            from tests.cloud_online_staff_acceptance import verify_staff
+            verify_staff(self,owner_connect=owner,auth_connect=lambda:connect(online_init.AUTH),tenant_id=a.tenant_id,other_tenant=b.tenant_id)
             for role,statement in ((ROLES["document"],"UPDATE cvcloud.jobs SET report_result=NULL"),(ROLES["worker"],"UPDATE cvcloud.jobs SET report_options=NULL")):
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     with connect(role) as conn:
