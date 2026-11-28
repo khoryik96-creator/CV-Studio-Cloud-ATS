@@ -55,6 +55,9 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
     keep={"tab"+x for x in NAV if x!="JACreate" or enable_profile}
+    if online_candidate:
+        # Retain original navigation order. Never serve unported desktop handlers.
+        keep={node.get("id") for node in nav if (node.get("id") or "").startswith("tab")}
     for node in list(nav):
         if node.get("id") not in keep:
             nav.remove(node)
@@ -72,7 +75,11 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                 enabled.add("tabJACreate")
             if node.get("id") not in enabled:
                 node.set("disabled","disabled")
-                node.set("title","Staging integration pending")
+                node.set("title","Locked — cloud integration not yet available")
+                if online_candidate:
+                    label=node.xpath(".//span[@class='tab-label']")
+                    if label and label[0].text:
+                        label[0].text=label[0].text+" · Locked"
             if node.get("id")=="tabAppraiser":
                 node.set("class","page-tab")
                 if enable_scoring:
