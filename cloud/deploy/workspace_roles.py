@@ -11,6 +11,7 @@ ROLES_BY_SERVICE = {
     "document": "cvcloud_document",
     "admin": "cvcloud_admin",
     "provider": "cvcloud_provider",
+    "provider_reader": "cvcloud_provider_reader",
     "worker": "cvcloud_worker",
     "scheduler": "cvcloud_scheduler",
 }
@@ -48,12 +49,19 @@ def verify_service_role(connect, service):
                 has_table_privilege(current_user,'cvcloud.sessions','DELETE')""").fetchone()
             if forbidden != (False,False,False,False):
                 raise RuntimeError("Online workspace role may mutate credentials")
-        if service != "provider":
+        if service != "provider_reader":
             secret = conn.execute("""SELECT
                 has_column_privilege(current_user,'cvcloud.provider_config','ciphertext','SELECT'),
                 has_column_privilege(current_user,'cvcloud.provider_config','nonce','SELECT')""").fetchone()
             if secret != (False,False):
                 raise RuntimeError("Online workspace role may read provider secrets")
+        if service == "provider_reader":
+            grants = conn.execute("""SELECT
+                has_column_privilege(current_user,'cvcloud.provider_config','ciphertext','SELECT'),
+                has_any_column_privilege(current_user,'cvcloud.provider_config','INSERT,UPDATE'),
+                has_table_privilege(current_user,'cvcloud.provider_config','DELETE,TRUNCATE')""").fetchone()
+            if grants != (True,False,False):
+                raise RuntimeError("Provider reader must be read-only")
         if service == "scheduler":
             privileges = conn.execute("""SELECT
                 has_table_privilege(current_user,'cvcloud.documents','SELECT,INSERT,UPDATE,DELETE,TRUNCATE'),
