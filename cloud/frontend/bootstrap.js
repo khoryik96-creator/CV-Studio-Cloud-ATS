@@ -123,5 +123,15 @@
  el("cloudClearInput").addEventListener("click",()=>{el("cvInput").value="";el("fileInput").value="";el("dzFileName").textContent="";el("charCount").textContent="0 characters";el("dzClear").style.display="none";});
  el("cloudRefresh").addEventListener("click",async()=>{try{if(binding)await binding.refresh();}catch(e){if(e.code==="authentication_required"){reset();say("Session expired.");}else say("Status unavailable.");}});
  el("cloudRecover").addEventListener("click",async()=>{if(binding)await binding.resumeSubmission();});
- // Do not silently restore a prior account on a shared browser. Explicit login.
+ // The online pilot can reuse a server-validated session in this browser.
+ if(el("cloudLoginPanel").dataset.resumeSession==="true"){
+   const button=login.querySelector("button");
+   const epoch=generation;
+   button.disabled=true;
+   client.hydrate().then(session=>{
+     if(epoch===generation)attach(session);
+   }).catch(error=>{
+     if(epoch===generation&&error.code!=="authentication_required")say("Session check unavailable. Try signing in.");
+   }).finally(()=>{button.disabled=false;});
+ }
 })();

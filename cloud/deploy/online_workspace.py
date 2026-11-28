@@ -64,7 +64,7 @@ def assemble_workspace(*, config, auth_connect, document_connect,
 
 
 def assemble_worker(*, worker_connect, provider_connect, storage_root,
-                    cipher, catalogue, principals, concurrency=2, transport_factory=None, enable_blind_jd=False, tenant_research=None):
+                    cipher, catalogue, principals, concurrency=2, transport_factory=None, enable_blind_jd=False, tenant_research=None, created_after=None):
     """Build a bounded worker without starting it or dispatching AI requests."""
     if not callable(worker_connect) or not callable(provider_connect) or worker_connect is provider_connect:
         raise ValueError("Separate worker and provider connections required")
@@ -80,7 +80,7 @@ def assemble_worker(*, worker_connect, provider_connect, storage_root,
         principals=principals,
         repository=documents,
         storage=storage,
-        workers=WorkerLeases(documents),
+        workers=WorkerLeases(documents, created_after=created_after),
         ledger=AIBudget(documents),
         outputs=JobOutputs(documents, storage),
         resolve_provider=provider.resolve,

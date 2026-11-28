@@ -9,7 +9,7 @@ from cloud.deploy.online_serve import server_options
 from cloud.deploy.online_workspace import assemble_workspace,assemble_worker
 import os
 from cloud.deploy.workspace_research import load_research
-from cloud.deploy.workspace_config import load_policy,service_connection,concurrency,require_live_worker_approval
+from cloud.deploy.workspace_config import load_policy,service_connection,concurrency,live_worker_cutoff
 from cloud.deploy.workspace_heartbeat import Heartbeat
 from cloud.deploy.workspace_scheduler import WorkspaceScheduler
 from cloud.deploy.workspace_roles import verify_service_role
@@ -53,7 +53,7 @@ def web():
 
 def worker():
     # No paid requests or queue claims without a separate explicit live gate.
-    require_live_worker_approval()
+    created_after=live_worker_cutoff()
     stop=Event()
     def request_stop(*_):
         stop.set()
@@ -70,7 +70,7 @@ def worker():
             verify_service_role(connect,service)
         factory=partial(assemble_worker,worker_connect=worker_connect,
             provider_connect=provider_connect,storage_root=STORAGE,cipher=cipher,
-            catalogue=catalogue,concurrency=concurrency(),enable_blind_jd=True,tenant_research=research)
+            catalogue=catalogue,concurrency=concurrency(),enable_blind_jd=True,tenant_research=research,created_after=created_after)
         scheduler=WorkspaceScheduler(scheduler_connect=scheduler_connect,
             runtime_factory=lambda principals:factory(principals=principals))
         while not stop.is_set():
