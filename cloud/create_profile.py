@@ -63,6 +63,9 @@ class CreateProfile:
                 raise JobConflict("Profile attempt already recorded")
             return row[0]
 
+    def _dispatch(self, principal, lease, settings, candidate, raw, mime):
+        return self.jobadder.create_with_cv(principal, lease.job_id, settings, candidate, raw, mime)
+
     def run_claimed(self, principal, lease, workers):
         try:
             with LeaseSupervisor(lambda: workers.heartbeat(principal, lease), interval=20, deadline=600) as supervisor:
@@ -73,8 +76,7 @@ class CreateProfile:
                 confirmation = self._record_dispatch(principal, lease)
                 if not hmac.compare_digest(confirmation["sha256"], digest):
                     raise JobConflict("Candidate CV changed")
-                result = self.jobadder.create_with_cv(principal, lease.job_id, confirmation["settings"],
-                                                      candidate, raw, mime)
+                result = self._dispatch(principal, lease, confirmation["settings"], candidate, raw, mime)
                 supervisor.check()
                 if not workers.heartbeat(principal, lease):
                     raise JobConflict("Profile job lease lost")
