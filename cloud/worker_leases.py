@@ -22,8 +22,8 @@ class WorkerLeases:
     def __init__(self, repository):
         self.repository = repository
 
-    def claim(self, principal, *, cv_only=False, include_scoring=False):
-        if type(cv_only) is not bool or type(include_scoring) is not bool:
+    def claim(self, principal, *, cv_only=False, include_scoring=False, include_reports=False):
+        if type(cv_only) is not bool or type(include_scoring) is not bool or type(include_reports) is not bool:
             raise ValueError("Invalid claim filter")
         token = str(uuid4())
         with self.repository.scoped(principal) as (conn, tenant, owner):
@@ -39,7 +39,8 @@ class WorkerLeases:
                 JOIN cvcloud.tenants t ON t.id=j.tenant_id
                 WHERE j.tenant_id=%s AND j.owner_id=%s AND j.state='queued' AND u.active AND t.active
                 AND (NOT %s OR j.module IN ('cv_formatting','cv_blinding')
-                    OR (%s AND j.module='cv_scoring' AND j.scoring_jd_id IS NOT NULL))
+                    OR (%s AND j.module='cv_scoring' AND j.scoring_jd_id IS NOT NULL)
+                    OR (%s AND j.module IN ('blind_jd','company_profile') AND j.report_options IS NOT NULL))
                 AND NOT EXISTS (SELECT 1 FROM cvcloud.jobs running WHERE running.tenant_id=j.tenant_id
                     AND running.owner_id=j.owner_id AND running.state='running')
                 ORDER BY j.created_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED
@@ -48,7 +49,7 @@ class WorkerLeases:
                   updated_at=clock_timestamp()
               FROM next_job n WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=n.id
               RETURNING j.id::text,j.document_id::text,j.module,j.lease_token::text""",
-                (tenant,owner,cv_only,include_scoring,token,LEASE_SECONDS,tenant,owner)).fetchone()
+                (tenant,owner,cv_only,include_scoring,include_reports,token,LEASE_SECONDS,tenant,owner)).fetchone()
         return Lease(*row) if row else None
 
     def heartbeat(self, principal, lease):
@@ -68,14 +69,14 @@ class WorkerLeases:
         with self.repository.scoped(principal) as (conn,tenant,owner):
             # Unknown provider billing cannot be represented as a clean success/failure.
             # Reservation and completion both lock the job row before changing it.
-            active=conn.execute("""SELECT module,scoring_jd_id FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
+            active=conn.execute("""SELECT module,(scoring_jd_id IS NOT NULL OR report_options IS NOT NULL) FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
                 AND id=%s AND state='running' AND lease_token=%s AND lease_until>clock_timestamp()
                 FOR UPDATE""",(tenant,owner,uid(lease.job_id),uid(lease.token))).fetchone()
             if not active:
                 return False
             # Document-producing jobs must publish through JobOutputs, not
             # transition to success without a durable downloadable artifact.
-            if target is State.SUCCEEDED and (active[0] in ("cv_formatting","cv_blinding") or active[1] is not None):
+            if target is State.SUCCEEDED and (active[0] in ("cv_formatting","cv_blinding") or active[1]):
                 return False
             pending=conn.execute("""SELECT 1 FROM cvcloud.ai_reservations WHERE tenant_id=%s
                 AND owner_id=%s AND job_id=%s AND settled_at IS NULL LIMIT 1""",

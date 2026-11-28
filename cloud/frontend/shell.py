@@ -15,6 +15,7 @@ ASSETS={
     "existing_cv_controls.js": FRONTEND/"existing_cv_controls.js",
     "bootstrap.js": FRONTEND/"bootstrap.js",
     "provider_settings.js": FRONTEND/"provider_settings.js",
+    "reports_cloud.js": FRONTEND/"reports_cloud.js",
     "scoring_cloud.js": FRONTEND/"scoring_cloud.js",
     "batch_cloud.js": FRONTEND/"batch_cloud.js",
     "history_cloud.js": FRONTEND/"history_cloud.js",
@@ -48,7 +49,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_scoring=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
+def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -62,6 +63,8 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_provider_setti
                 enabled.add("tabBatch")
             if enable_scoring:
                 enabled.add("tabAppraiser")
+            if enable_reports:
+                enabled.update(("tabCompany", "tabJDAnon"))
             if node.get("id") not in enabled:
                 node.set("disabled","disabled")
                 node.set("title","Staging integration pending")
@@ -165,6 +168,67 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_provider_setti
         content.append(scoring)
         bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
         bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/scoring_cloud.js", defer="defer"))
+    if enable_reports:
+        for key in ("Company", "JDAnon"):
+            view = deepcopy(_one(source, "view" + key))
+            is_company = key == "Company"
+            heading = view.xpath(".//div[@class='card-head']")[0]
+            heading[1].text = ("Generate a profile from fictional research sources" if is_company
+                               else "Remove employer identifiers and review the rewritten JD")
+            quick = _one(view, "companyAiQuickHint" if is_company else "jdAnonAiQuickHint").getparent().getparent()
+            quick.getparent().remove(quick)
+            remove_buttons = [
+                "copyCompanyProfile()", "exportCompanyDoc()", "exportCompanyPDF()",
+                "copyAnonJD()", "exportAnonJDDoc()", "exportAnonJDPDF()",
+            ]
+            for button in view.xpath(".//button"):
+                action = button.get("onclick")
+                if action in remove_buttons or button.get("data-cv-open-ready") is not None or (
+                    action in {"generateCompanyProfile()", "generateAnonJD()"} and button.get("id") is None
+                ):
+                    button.getparent().remove(button)
+                elif action in {"clearCompanyProfile()", "clearAnonJD()"}:
+                    button.set("id", "cloudClear" + key)
+            if is_company:
+                url = _one(view, "companyUrl").getparent().getparent()
+                drop = _one(view, "companyDropZone")
+                source_panel = drop.getparent()
+                source_panel[0].text = "Company name"
+                # Remove the desktop URL fetch and document import controls.
+                for node in (url, drop.getprevious(), drop):
+                    source_panel.remove(node)
+                field = _one(view, "companyText")
+                field.set("aria-label", "Company name")
+                field.set("maxlength", "200")
+                field.set("style", field.get("style").replace("240px", "52px"))
+                context = _one(view, "companyContext").getparent()
+                context.getparent().remove(context)
+                target = _one(view, "companyOutput")
+                cost = _one(view, "companyCost")
+            else:
+                field = _one(view, "anonRawText")
+                field.set("aria-label", "Original job description")
+                file = _one(view, "anonFileInput")
+                file.set("accept", ".txt,.docx,.pdf")
+                _one(view, "anonDropZone")[2].text = "PDF, DOCX or TXT"
+                employer = _one(view, "anonCompanyName")
+                employer.set("aria-label", "Employer name")
+                employer.set("maxlength", "150")
+                context = employer.getparent().getparent()
+                for child in list(context):
+                    if child is not context[0] and child is not employer.getparent():
+                        context.remove(child)
+                context.append(html.fromstring('<div><label for="cloudJDIdentifiers">Other identifiers to remove, one per line</label><textarea id="cloudJDIdentifiers"></textarea><label for="cloudJDTechnologies">Technologies to retain, one per line</label><textarea id="cloudJDTechnologies"></textarea></div>'))
+                toolbar = _one(view, "anonPreviewModeVisual").getparent()
+                toolbar.getparent().remove(toolbar)
+                target = _one(view, "anonJDOutput")
+                cost = _one(view, "anonJDCost")
+            cost.getparent().remove(cost)
+            target.getparent().insert(1, html.fromstring(f'<div><label for="cloudHistory{key}">Recent reports</label> <select id="cloudHistory{key}"></select><button id="cloudLoad{key}" class="sec" type="button">Load report</button></div>'))
+            view.set("style", "display:none")
+            content.append(_clean(view))
+        bootstrap = shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
+        bootstrap.addprevious(html.Element("script", src="/cloud-ui/assets/reports_cloud.js", defer="defer"))
     if enable_provider_settings:
         # Reuse only the main AI card, not the desktop settings drawer or
         # integration cards. Model choices must come from the cloud server.
@@ -246,7 +310,8 @@ def register_existing_ui(app, *, enable_batch=False):
     history_required={("/api/jobs","GET"),("/api/documents","GET"),("/api/jobs/<uuid:job_id>/preview","GET")}
     accounts_required={("/api/admin/accounts","GET"),("/api/admin/accounts/<uuid:user_id>/actions","POST")}
     scoring_required={("/api/scoring/jobs","GET"),("/api/scoring/jobs","POST"),("/api/scoring/jobs/<uuid:job_id>","GET")}
-    page=render_shell(enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
+    report_routes = {("/api/" + slug + "/jobs", method) for slug in ("company-profile", "blind-jd") for method in ("GET", "POST")}
+    page=render_shell(enable_reports=report_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
         enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")

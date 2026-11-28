@@ -1,0 +1,6 @@
+Cloud Operations Engineer
+Fictional Harbour Labs seeks a Cloud Operations Engineer.
+Maintain cloud monitoring and document recovery procedures.
+Automate recovery checks with Ansible.
+Two years of infrastructure operations experience required.
+Contact careers@fictional-harbour.invalid.

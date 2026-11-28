@@ -82,6 +82,10 @@ def environment(*, reverse=False):
         fixture_answer=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8"),
         fixture_blind_answer=(fixtures/"cloud_cv_blind.json").read_text(encoding="utf-8"),
         fixture_scoring_jd=(fixtures/"cloud_cv_scoring_jd.txt").read_text(encoding="utf-8"),
+        fixture_report_sources=(
+            (fixtures/"cloud_cv_blind_jd.txt").read_text(encoding="utf-8"),
+            (fixtures/"cloud_cv_company_name.txt").read_text(encoding="utf-8"),
+        ),
         strict_upload=True,enable_batch=True,concurrency=1)
 
 def web():

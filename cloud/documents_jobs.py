@@ -61,10 +61,12 @@ class DocumentJobs:
                 FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(document_id))).fetchone()
 
-    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options(), scoring=None):
+    def enqueue(self, principal, *, document_id, module, idempotency_key, options=Options(), scoring=None, report=None):
         if module not in SELECTED_MODULES or not isinstance(options,Options):
             raise ValueError("Module or options invalid")
         options.validate(module)
+        if report is not None and module not in {"blind_jd", "company_profile"}:
+            raise ValueError("Invalid report module")
         document_id, key = uid(document_id), uid(idempotency_key)
         if scoring is not None:
             from cloud.scoring_contract import rubric
@@ -90,6 +92,11 @@ class DocumentJobs:
                     expected_input = (jd_id, criteria) if scoring is not None else (None, None)
                     if tuple(prior_input) != expected_input:
                         raise JobConflict("Idempotency key already used for a different rubric or JD")
+                if module in {"blind_jd", "company_profile"}:
+                    prior_report = conn.execute("""SELECT report_options FROM cvcloud.jobs
+                        WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,prior[0])).fetchone()[0]
+                    if prior_report != report:
+                        raise JobConflict("Idempotency key already used for different report options")
                 return prior[0]
             doc=conn.execute("SELECT id FROM cvcloud.documents WHERE tenant_id=%s AND owner_id=%s AND id=%s",(tenant,user,document_id)).fetchone()
             if not doc:
@@ -108,6 +115,10 @@ class DocumentJobs:
                 from psycopg.types.json import Jsonb
                 conn.execute("""UPDATE cvcloud.jobs SET scoring_jd_id=%s,scoring_criteria=%s
                     WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (jd_id,Jsonb(criteria),tenant,user,job_id))
+            if report is not None:
+                from psycopg.types.json import Jsonb
+                conn.execute("""UPDATE cvcloud.jobs SET report_options=%s
+                    WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (Jsonb(report),tenant,user,job_id))
             return job_id
 
     def job(self, principal, job_id):

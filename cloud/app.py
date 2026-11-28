@@ -5,9 +5,9 @@ from cloud.auth import Auth, TTL
 
 COOKIE = "__Host-cvcloud"
 
-def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None, onboarding=None, enable_scoring=False):
-    if type(enable_scoring) is not bool or (enable_scoring and cv_services is None):
-        raise ValueError("Scoring requires authenticated document services")
+def create_app(*, auth_store=None, public_origin=None, cv_services=None, provider_admin=None, account_admin=None, ai_usage=None, onboarding=None, enable_scoring=False, enable_reports=False):
+    if any(type(flag) is not bool for flag in (enable_scoring, enable_reports)) or ((enable_scoring or enable_reports) and cv_services is None):
+        raise ValueError("Reports require authenticated document services")
     app = Flask(__name__, static_folder=None)
     app.config.update(MAX_CONTENT_LENGTH=32 * 1024 * 1024)
     @app.get("/healthz")
@@ -78,7 +78,7 @@ def create_app(*, auth_store=None, public_origin=None, cv_services=None, provide
         return response
     if cv_services is not None:
         from cloud.cv_api import register
-        register(app,auth,COOKIE,same_origin,*cv_services,enable_scoring=enable_scoring)
+        register(app,auth,COOKIE,same_origin,*cv_services,enable_scoring=enable_scoring,enable_reports=enable_reports)
     if provider_admin is not None:
         from cloud.provider_admin_api import register as register_provider_admin
         register_provider_admin(app,auth,COOKIE,same_origin,provider_admin)

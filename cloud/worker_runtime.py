@@ -13,7 +13,7 @@ from cloud.documents_jobs import uid
 from cloud.cv_runner import run_claimed
 
 class WorkerRuntime:
-    def __init__(self,*,principals,repository,storage,workers,ledger,outputs,resolve_provider,concurrency=2,enable_ocr=False,enable_scoring=False):
+    def __init__(self,*,principals,repository,storage,workers,ledger,outputs,resolve_provider,concurrency=2,enable_ocr=False,enable_scoring=False,research=None):
         if type(concurrency) is not int or not 1<=concurrency<=4 or type(enable_ocr) is not bool or type(enable_scoring) is not bool:
             raise ValueError("Invalid worker limits")
         if not isinstance(principals,(list,tuple)) or not 1<=len(principals)<=100:
@@ -45,9 +45,14 @@ class WorkerRuntime:
         self.repository=repository;self.storage=storage;self.workers=workers
         self.ledger=ledger;self.outputs=outputs;self.resolve_provider=resolve_provider
         self.enable_ocr=enable_ocr
+        if research is not None and not callable(research):
+            raise ValueError("Trusted research adapter required")
+        self.research = research
         self._claim_filters = {"cv_only": True}
         if enable_scoring:
             self._claim_filters["include_scoring"] = True
+        if research is not None:
+            self._claim_filters["include_reports"] = True
 
     def _one(self,p):
         # No claim until configuration is available. Resolver must not make
@@ -65,6 +70,11 @@ class WorkerRuntime:
             return "completed" if run_scoring(principal=p, lease=lease, repository=self.repository,
                 storage=self.storage, workers=self.workers, ledger=self.ledger, policy=policy,
                 transport=transport) else "review_or_recovery"
+        if lease.module in ("blind_jd", "company_profile"):
+            from cloud.document_reports import run_claimed as run_report
+            return "completed" if run_report(principal=p, lease=lease, repository=self.repository,
+                storage=self.storage, workers=self.workers, ledger=self.ledger, policy=policy,
+                transport=transport, research=self.research) else "review_or_recovery"
         return "completed" if run_claimed(principal=p,lease=lease,repository=self.repository,
             storage=self.storage,workers=self.workers,ledger=self.ledger,policy=policy,transport=transport,
             outputs=self.outputs,enable_ocr=self.enable_ocr) else "review_or_recovery"

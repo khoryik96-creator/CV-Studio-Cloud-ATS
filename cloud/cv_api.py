@@ -10,7 +10,7 @@ from cloud.private_storage import DOCX,StorageError
 
 CV_MODULES=frozenset({"cv_formatting","cv_blinding"})
 
-def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False):
+def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_scoring=False,enable_reports=False):
     def protected(*,write=False):
         def decorate(fn):
             @wraps(fn)
@@ -64,7 +64,7 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
 
     if enable_scoring:
         from cloud.scoring_contract import parse_rubric
-        from cloud.scoring_jobs import reports
+        from cloud.scoring_jobs import reports as read_scoring_reports
 
         @app.post("/api/scoring/jobs")
         @protected(write=True)
@@ -81,10 +81,38 @@ def register(app,auth,cookie,same_origin,uploads,repository,outputs,*,enable_sco
         @app.get("/api/scoring/jobs/<uuid:job_id>")
         @protected()
         def scoring_reports(principal, job_id=None):
-            result = reports(repository, principal, str(job_id) if job_id is not None else None)
+            result = read_scoring_reports(repository, principal, str(job_id) if job_id is not None else None)
             if result is None:
                 return jsonify(error="not_found"), 404
             return jsonify(result)
+
+    if enable_reports:
+        from cloud.document_reports import MODULES, options as report_options, reports
+
+        def register_report(module, route):
+            @protected(write=True)
+            def submit_report(principal):
+                request.max_content_length = 96 * 1024
+                body = request.get_json(silent=True)
+                if not isinstance(body, dict) or set(body) != {"document_id", "options", "idempotency_key"}:
+                    return jsonify(error="invalid_request"), 400
+                job_id = repository.enqueue(principal, document_id=uid(body["document_id"]), module=module,
+                    idempotency_key=uid(body["idempotency_key"]), report=report_options(module, body["options"]))
+                return jsonify(job_id=job_id), 202
+
+            @protected()
+            def get_reports(principal, job_id=None):
+                result = reports(repository, principal, module, str(job_id) if job_id is not None else None)
+                if result is None:
+                    return jsonify(error="not_found"), 404
+                return jsonify(result)
+
+            for path in (route, route + "/<uuid:job_id>"):
+                app.add_url_rule(path, module + "_reports", get_reports, methods=["GET"])
+            app.add_url_rule(route, module + "_submit", submit_report, methods=["POST"])
+
+        for module, slug in MODULES.items():
+            register_report(module, "/api/" + slug + "/jobs")
 
     @app.get("/api/jobs")
     @app.get("/api/documents")
