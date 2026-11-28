@@ -70,6 +70,22 @@ def main():
         xml=archive.read("word/document.xml")
         assert b"Disaster Recovery Automation" in xml and b"9,000" not in xml
     expect("GET",path+"/download?review=1",404,headers=other)
+    other_doc=json.loads(expect("POST","/api/documents",201,fixture,{**other,"Content-Type":"text/plain"})[2])["document_id"]
+    other_job=json.loads(expect("POST","/api/jobs",202,json.dumps({"document_id":other_doc,"module":"cv_formatting",
+        "idempotency_key":str(uuid4())}),{**other,"Content-Type":"application/json"})[2])["job_id"]
+    other_path="/api/jobs/"+other_job
+    expect("GET",other_path,404,headers=auth)
+    end=time.monotonic()+120
+    while time.monotonic()<end:
+        state=json.loads(expect("GET",other_path,200,headers=other)[2])["state"]
+        if state in ("succeeded","needs_review"):
+            break
+        if state=="failed":
+            raise RuntimeError("Second tenant job failed")
+        time.sleep(2)
+    else:
+        raise RuntimeError("Second tenant worker starvation")
+    expect("GET",other_path+"/download?review=1",200,headers=other)
     expect("POST","/api/auth/logout",200,headers=auth)
     expect("GET",path,401,headers=auth)
     print("Synthetic HTTPS worker workflow passed")
