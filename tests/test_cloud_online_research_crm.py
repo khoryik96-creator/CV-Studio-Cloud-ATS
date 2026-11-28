@@ -37,7 +37,7 @@ class SandboxCRMTests(unittest.TestCase):
         self.resolve=Mock(return_value=self.session)
         self.attempted=set()
         @contextmanager
-        def guard(p,account,job,email):
+        def guard(p,account,job,email,*,lease_token):
             key=(p.tenant_id,account,job)
             if key in self.attempted:
                 raise CRMUnavailable("Attempt already recorded")
@@ -46,11 +46,12 @@ class SandboxCRMTests(unittest.TestCase):
         self.adapter=SandboxJobAdder(self.resolve,guard)
         self.settings=self.adapter.settings(self.actor)
         self.job=str(uuid4())
+        self.lease_token=str(uuid4())
         self.candidate={"name":"Fictional Person","email":"fictional@example.test"}
 
     def submit(self,**kw):
         return self.adapter.create_with_cv(self.actor,self.job,self.settings,
-            self.candidate,kw.get("raw",b"fictional document"),kw.get("mime",DOCX))
+            self.candidate,kw.get("raw",b"fictional document"),kw.get("mime",DOCX),lease_token=self.lease_token)
 
     def test_create_then_attach_once_without_retries(self):
         self.client.request_json.side_effect=[(200,{"items":[],"totalCount":0}),(201,{"candidateId":123})]
