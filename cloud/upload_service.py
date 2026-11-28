@@ -21,9 +21,7 @@ class UploadService:
         if media_type not in MEDIA_TYPES or type(byte_size) is not int or not 1<=byte_size<=MAX_BYTES:
             raise StorageError("Invalid upload")
         with self.repository.scoped(principal) as (conn,tenant,owner):
-            active=conn.execute("""SELECT u.id FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active
-                FOR UPDATE OF u FOR SHARE OF t""",(tenant,owner)).fetchone()
+            active=self.repository.lock_active_account(conn,tenant,owner,exclusive=True)
             if not active:
                 raise ScopeError("Account inactive")
             count,total=conn.execute("""SELECT count(*),coalesce(sum(byte_size),0) FROM cvcloud.documents

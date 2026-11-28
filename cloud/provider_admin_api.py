@@ -55,13 +55,13 @@ def register(app,auth,cookie,same_origin,service):
             return wrapped
         return decorate
 
-    @app.get("/api/admin/ai-provider")
+    @app.get("/api/admin/ai-provider", endpoint="provider_admin_status")
     @protected()
     def status(principal):
         return jsonify(configuration=_public(service.status(principal)),
             choices=[{"provider":p,"model":m} for p,m in service.choices(principal)])
 
-    @app.post("/api/admin/ai-provider")
+    @app.post("/api/admin/ai-provider", endpoint="provider_admin_configure")
     @protected(write=True)
     def configure(principal):
         body=request.get_json(silent=True)
@@ -73,7 +73,7 @@ def register(app,auth,cookie,same_origin,service):
             secret=body["secret"],expected_revision=revision)
         return jsonify(configuration=_public(value))
 
-    @app.post("/api/admin/ai-provider/disable")
+    @app.post("/api/admin/ai-provider/disable", endpoint="provider_admin_disable")
     @protected(write=True)
     def disable(principal):
         body=request.get_json(silent=True)

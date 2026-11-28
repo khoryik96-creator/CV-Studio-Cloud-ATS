@@ -29,8 +29,7 @@ class WorkerLeases:
         with self.repository.scoped(principal) as (conn, tenant, owner):
             # Serialize claims for an owner across worker processes. Admission
             # of a queued job also locks this user row.
-            active=conn.execute("""SELECT u.id FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active FOR UPDATE OF u""",(tenant,owner)).fetchone()
+            active=self.repository.lock_active_account(conn,tenant,owner,exclusive=True)
             if not active:
                 return None
             row = conn.execute("""WITH next_job AS (

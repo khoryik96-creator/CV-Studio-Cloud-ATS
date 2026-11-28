@@ -67,3 +67,14 @@ class TestProviderAdminAPI(unittest.TestCase):
         self.login("owner")
         self.service.status.side_effect=ProviderConfigError("provider_access_denied")
         self.assertEqual(self.client.get(URL,base_url=ORIGIN).status_code,403)
+
+    def test_composition_with_document_scoring_and_account_services(self):
+        app=create_app(auth_store=self.store,public_origin=ORIGIN,
+            cv_services=(Mock(),Mock(),Mock()),enable_scoring=True,
+            provider_admin=self.service,account_admin=Mock(),ai_usage=Mock())
+        rules={(r.rule,m):r.endpoint for r in app.url_map.iter_rules() for m in r.methods}
+        self.assertNotEqual(rules[("/api/jobs/<uuid:job_id>","GET")],
+            rules[("/api/admin/ai-provider","GET")])
+        client=app.test_client()
+        for path in (URL,"/api/admin/accounts","/api/admin/ai-usage","/api/scoring/jobs"):
+            self.assertEqual(client.get(path,base_url=ORIGIN).status_code,401)

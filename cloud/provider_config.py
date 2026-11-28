@@ -60,14 +60,11 @@ class ProviderConfig:
         self.repository,self.cipher,self.catalogue=repository,cipher,catalogue
         self.transport_factory=transport_factory
 
-    @staticmethod
-    def _authorize(conn,tenant,user,*,admin=False):
+    def _authorize(self,conn,tenant,user,*,admin=False):
         # Do not trust a cached role or caller-supplied role alone. Hold the
         # account and tenant status stable through the configuration operation.
-        row=conn.execute("""SELECT u.role FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-            WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active
-            FOR SHARE OF u,t""",(tenant,user)).fetchone()
-        if not row or (admin and row[0] not in ("owner","admin")):
+        role=self.repository.lock_active_account(conn,tenant,user)
+        if not role or (admin and role not in ("owner","admin")):
             raise ProviderConfigError("provider_access_denied")
 
     def choices(self,principal):

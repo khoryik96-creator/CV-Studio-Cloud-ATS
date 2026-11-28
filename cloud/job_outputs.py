@@ -42,12 +42,14 @@ class JobOutputs:
         info=self.storage.put(tenant,owner,object_id,BytesIO(result.document),DOCX)
         review=result.requires_review or lease.module=="cv_blinding"
         with self.repository.scoped(principal) as (conn,tenant,owner):
+            if not self.repository.lock_active_account(conn,tenant,owner):
+                raise OutputError("output_lease_lost")
             active=conn.execute("""SELECT j.id FROM cvcloud.jobs j
                 JOIN cvcloud.users u ON (u.tenant_id,u.id)=(j.tenant_id,j.owner_id)
                 JOIN cvcloud.tenants t ON t.id=j.tenant_id
                 WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=%s AND j.state='running'
                 AND j.lease_token=%s AND j.lease_until>clock_timestamp()
-                AND u.active AND t.active FOR UPDATE OF j FOR SHARE OF u,t""",(tenant,owner,job_id,token)).fetchone()
+                AND u.active AND t.active FOR UPDATE OF j""",(tenant,owner,job_id,token)).fetchone()
             if not active:
                 raise OutputError("output_lease_lost")
             pending=conn.execute("""SELECT 1 FROM cvcloud.ai_reservations WHERE tenant_id=%s

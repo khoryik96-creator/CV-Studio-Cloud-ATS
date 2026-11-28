@@ -3,8 +3,6 @@ import hashlib
 import os
 from pathlib import Path
 import re
-import psycopg
-from psycopg import sql
 from cloud.deploy.online_auth import verify_database
 from cloud.deploy.online_owner import verify_owner_database
 
@@ -25,6 +23,7 @@ def read_secret(name):
     return value
 
 def connect_as(role,password):
+    import psycopg
     return psycopg.connect(host="online-db",port=5432,dbname=DB,user=role,password=password,
         connect_timeout=5,options="-c statement_timeout=15000 -c lock_timeout=5000")
 
@@ -42,6 +41,7 @@ def scripts():
     return digest.hexdigest(),statements
 
 def initialize():
+    from psycopg import sql
     boot,owner,auth=(read_secret(name) for name in ("CVCLOUD_BOOTSTRAP_PASSWORD_FILE",
         "CVCLOUD_SCHEMA_PASSWORD_FILE","CVCLOUD_AUTH_PASSWORD_FILE"))
     if len({boot,owner,auth})!=3:

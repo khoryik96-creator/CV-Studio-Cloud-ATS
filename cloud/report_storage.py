@@ -26,12 +26,14 @@ def read_document(repository, storage, principal, document_id):
 def publish(repository, principal, lease, result):
     result_column = RESULT_COLUMN[lease.module]
     with repository.scoped(principal) as (conn, tenant, owner):
+        if not repository.lock_active_account(conn,tenant,owner):
+            raise ValueError("report_lease_lost")
         active = conn.execute("""SELECT j.id FROM cvcloud.jobs j
             JOIN cvcloud.users u ON (u.tenant_id,u.id)=(j.tenant_id,j.owner_id)
             JOIN cvcloud.tenants t ON t.id=j.tenant_id
             WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=%s AND j.state='running'
             AND j.lease_token=%s AND j.lease_until>clock_timestamp() AND u.active AND t.active
-            FOR UPDATE OF j FOR SHARE OF u,t""", (tenant, owner, lease.job_id, lease.token)).fetchone()
+            FOR UPDATE OF j""", (tenant, owner, lease.job_id, lease.token)).fetchone()
         if active is None:
             raise ValueError("report_lease_lost")
         if conn.execute("""SELECT 1 FROM cvcloud.ai_reservations

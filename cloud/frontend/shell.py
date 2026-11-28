@@ -50,7 +50,7 @@ def _clean(node):
         node.set("type","button")
     return node
 
-def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False):
+def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False,online_candidate=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
     nav=deepcopy(_one(source,"pageTabs"))
@@ -99,7 +99,13 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
     _clean(nav);_clean(view)
     # The original CSS and two-card input/output structure remain the source.
     # Pending modules are visible but disabled, not loaded as desktop scripts.
+    if type(online_candidate) is not bool:
+        raise ValueError('Invalid UI mode')
+    if online_candidate and (enable_reports or enable_profile):
+        raise ValueError('Unverified research and CRM modules must remain disabled')
     shell=html.fromstring("""<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV Studio Cloud</title><link rel="stylesheet" href="/cloud-ui/assets/app.css"><script src="/cloud-ui/assets/cv_client.js" defer></script><script src="/cloud-ui/assets/existing_cv_controls.js" defer></script><script src="/cloud-ui/assets/bootstrap.js" defer></script></head><body><div class="app"><div class="header"><div><h1>CV Studio</h1><p>Cloud staging · fictional documents only</p></div><button id="cloudLogout" class="sec" type="button" style="display:none" hidden>Sign out</button></div><section class="card" id="cloudLoginPanel"><div class="card-head"><h2>Sign in</h2></div><div class="card-body"><form id="cloudLogin" method="post" action="/cloud-ui"><label>Organisation <input name="tenant" required autocomplete="organization" maxlength="63"></label><label>Email <input name="email" required type="email" autocomplete="username" maxlength="254"></label><label>Password <input name="password" required type="password" autocomplete="current-password" maxlength="256"></label><button type="submit" class="primary">Sign in</button></form></div></section><p id="cloudMessage" role="status" aria-live="polite"></p><div id="cloudContent" style="display:none"><div class="card" id="cloudJobOptions"><div class="card-body"><div class="btn-row"><label>CV alignment <select id="cloudAlignment"><option value="left">Left</option><option value="justify">Justify</option></select></label><label><input type="checkbox" id="cloudLanguage"> Correct spelling and grammar</label><label><input type="checkbox" id="cloudNeutral"> Gender-neutral blinded CV</label></div><p>Word download is available after processing. Structured preview, summary, batch and other module integration are pending.</p><div class="btn-row"><button class="sec" type="button" id="cloudRefresh">Refresh job status</button><button class="sec" type="button" id="cloudRecover">Recover unconfirmed submission</button></div></div></div></div></div></body></html>""")
+    if online_candidate:
+        shell.xpath("//div[@class='header']/div/p")[0].text = "Online workspace candidate · test documents only; not approved for production"
     content=_one(shell,"cloudContent")
     content.insert(0,nav)
     content.append(view)
@@ -320,7 +326,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0].addprevious(script)
     return etree.tostring(shell,method="html",encoding="utf-8",doctype="<!DOCTYPE html>")
 
-def register_existing_ui(app, *, enable_batch=False):
+def register_existing_ui(app, *, enable_batch=False, online_candidate=False):
     # Only an explicitly configured staging app with real authenticated APIs
     # can mount this view. A health-only or auth-only app cannot mount it.
     rules={(r.rule,method) for r in app.url_map.iter_rules() for method in r.methods}
@@ -335,7 +341,7 @@ def register_existing_ui(app, *, enable_batch=False):
     profile_routes = {("/api/create-profile/settings","GET"),("/api/create-profile/prepare","POST"),
                       ("/api/create-profile/jobs","POST"),("/api/create-profile/jobs","GET")}
     page=render_shell(enable_profile=profile_routes.issubset(rules),enable_reports=report_routes.issubset(rules),enable_batch=enable_batch,enable_scoring=scoring_required.issubset(rules),enable_provider_settings=admin_required.issubset(rules),
-        enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules)
+        enable_history=history_required.issubset(rules),enable_accounts=accounts_required.issubset(rules),enable_usage=("/api/admin/ai-usage","GET") in rules,online_candidate=online_candidate)
     bp=Blueprint("existing_cloud_ui",__name__)
     @bp.get("/cloud-ui")
     def index():

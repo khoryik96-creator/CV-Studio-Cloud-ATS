@@ -44,6 +44,18 @@ class DocumentJobs:
             conn.execute("SELECT set_config('cvcloud.tenant_id',%s,true),set_config('cvcloud.user_id',%s,true)", (tenant,user))
             yield conn, tenant, user
 
+    def lock_active_account(self, conn, tenant, user, *, exclusive=False):
+        """Acquire tenant then account locks within the caller's transaction.
+
+        The online repository overrides this with a narrow security-definer
+        function so the runtime does not need account write privileges.
+        """
+        if not conn.execute("SELECT id FROM cvcloud.tenants WHERE id=%s AND active FOR SHARE",(tenant,)).fetchone():
+            return None
+        lock = "FOR UPDATE" if exclusive else "FOR SHARE"
+        row=conn.execute("SELECT role FROM cvcloud.users WHERE tenant_id=%s AND id=%s AND active "+lock,(tenant,user)).fetchone()
+        return row[0] if row else None
+
     def register_document(self, principal, *, media_type, byte_size, sha256):
         """Register metadata only after a future upload service validates/stores bytes."""
         if media_type not in MEDIA_TYPES or type(byte_size) is not int or not 1 <= byte_size <= MAX_BYTES or not isinstance(sha256,str) or not re.fullmatch(r"[a-f0-9]{64}",sha256):
@@ -79,8 +91,7 @@ class DocumentJobs:
         with self.scoped(principal) as (conn,tenant,user):
             # Lock the account to serialize this user's queue admission. Per-user
             # and tenant-wide quotas and storage limits will be added separately.
-            active=conn.execute("""SELECT u.id FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active FOR UPDATE OF u""",(tenant,user)).fetchone()
+            active=self.lock_active_account(conn,tenant,user,exclusive=True)
             if not active:
                 raise ScopeError("Account is inactive")
             prior=conn.execute("""SELECT id::text,document_id::text,module,alignment,correct_language,neutral_gender FROM cvcloud.jobs
@@ -148,9 +159,7 @@ class DocumentJobs:
             raise ValueError("Invalid history request")
         cursor=uid(before) if before is not None else None
         with self.scoped(principal) as (conn,tenant,owner):
-            if not conn.execute("""SELECT 1 FROM cvcloud.users u JOIN cvcloud.tenants t ON t.id=u.tenant_id
-                WHERE u.tenant_id=%s AND u.id=%s AND u.active AND t.active
-                FOR SHARE OF u,t""",(tenant,owner)).fetchone():
+            if not self.lock_active_account(conn,tenant,owner):
                 raise ScopeError("Account unavailable")
             # Only the two static table/query definitions below can be selected.
             if kind=="jobs":
