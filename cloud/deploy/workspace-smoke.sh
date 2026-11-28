@@ -37,13 +37,20 @@ services:
 YAML
 compose() { docker compose -p "$project" -f compose.online-workspace.yaml -f "$secret_dir/probe.yaml" "$@"; }
 cleanup() {
+    result=$?
+    if [ "$result" -ne 0 ]; then
+        # This script runs only on disposable CI with synthetic credentials.
+        compose ps -a || true
+        compose logs --no-color --tail=80 initialize migrate grant-install web || true
+    fi
     compose down --remove-orphans --volumes >/dev/null 2>&1 || true
     rm -rf "$secret_dir"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 compose config --quiet
-compose up --build -d --wait --wait-timeout 240 web
+compose build web
+compose up --no-build -d --wait --wait-timeout 240 web
 test -z "$(docker container ls -aq --filter "label=com.docker.compose.project=$project" --filter "label=com.docker.compose.service=worker")"
 for service in web online-db; do
     id=$(compose ps -q "$service")
