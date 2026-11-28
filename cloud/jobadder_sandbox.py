@@ -3,7 +3,7 @@
 The trusted resolver must verify the OAuth account and sandbox designation,
 bind a single non-refreshing client to that tenant and revision, and never
 accept browser-supplied credentials. A durable attempt guard is required
-before any remote write. No production resolver or guard is supplied here.
+before any remote write. The workspace attempt journal is available separately; no live resolver is mounted.
 """
 from dataclasses import dataclass, field
 from contextlib import AbstractContextManager
@@ -64,9 +64,10 @@ class SandboxJobAdder:
     def settings(self,principal):
         return self._settings(self._session(principal))
 
-    def create_with_cv(self,principal,job_id,settings,candidate,raw,mime):
+    def create_with_cv(self,principal,job_id,settings,candidate,raw,mime,*,lease_token):
         # Validate all local inputs before the first network request.
         job_id=uid(job_id)
+        lease_token=uid(lease_token)
         if not isinstance(candidate,dict) or set(candidate)!={"name","email"}:
             raise CRMUnavailable("Reviewed candidate required")
         name,email=candidate["name"],candidate["email"]
@@ -86,7 +87,7 @@ class SandboxJobAdder:
             raise CRMUnavailable("Integration configuration changed")
         # The caller must provide a durable non-replay guard shared across
         # workers, keyed by tenant/account/job and normalized email.
-        guard=self._guard(principal,s.account_id,job_id,email.casefold())
+        guard=self._guard(principal,s.account_id,job_id,email.casefold(),lease_token=lease_token)
         if not isinstance(guard,AbstractContextManager):
             raise CRMUnavailable("Durable attempt guard required")
         with guard:
