@@ -2,20 +2,36 @@ name: Cloud foundation PostgreSQL
 on:
   push:
     branches: [master]
-  workflow_dispatch:
+    tags: ['**']
   pull_request:
     branches: [master]
-    paths:
-      - 'cloud/**'
-      - 'tests/test_cloud_*'
-      - 'tests/cloud_postgres_integration.py'
-      - '.github/workflows/cloud-postgres.yml'
-      - 'requirements-cloud.txt'
-      - 'tests/cloud_ai_secrets.py'
+  workflow_dispatch:
+
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  scope:
+    name: Determine test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify scope policy
+        run: python3 .github/ci_scope.py --self-test
+      - id: scope
+        run: python3 .github/ci_scope.py
+
   postgres:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'docs')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -39,7 +55,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt -r requirements-cloud.txt
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-cloud.txt
+      - run: python -m pip install -r requirements.txt -r requirements-cloud.txt pytest
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: node --version
       - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
@@ -52,3 +72,13 @@ jobs:
       - run: python -m pip install playwright==1.62.0
       - run: python -m playwright install --with-deps chromium
       - run: CVCLOUD_REQUIRE_ONLINE_AUTH_DB=1 CVCLOUD_REQUIRE_BROWSER=1 CVCLOUD_REQUIRE_NATIVE_OCR=1 python -m unittest tests.test_cloud_online_owner tests.test_cloud_online_auth cloud.test_foundation tests.test_cloud_auth_foundation tests.test_cloud_onboarding_api tests.test_cloud_blind_jd_contract tests.test_cloud_account_admin_api tests.test_cloud_provider_admin_api tests.test_cloud_provider_config tests.test_cloud_job_state tests.test_cloud_private_storage tests.test_cloud_ai_budget tests.test_cloud_ai_usage tests.test_cloud_ai_dispatch tests.test_cloud_deepseek tests.test_cloud_ocr_merge tests.test_cloud_native_ocr tests.test_cloud_cv_api tests.test_cloud_cv_runner tests.test_cloud_worker_supervision tests.test_cloud_worker_runtime tests.test_cloud_cv_engine tests.test_cloud_file_extract tests.cloud_ai_secrets tests.cloud_postgres_integration
+      - name: Cloud regression coverage on Linux
+        if: ${{ needs.scope.outputs.scope == 'cloud' || needs.scope.outputs.scope == 'online' }}
+        run: |
+          python -m pytest tests/test_cloud_*.py -q
+          for fixture in tests/test_cloud_*.js; do
+            [ -f "$fixture" ] || continue
+            node "$fixture" || exit 1
+          done
+          python -m compileall -q cloud
+          git diff --check
