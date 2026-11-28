@@ -1,16 +1,37 @@
 name: Cloud interactive synthetic container
 on:
-  pull_request:
-    branches: [master]
-    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-interactive-container.yml']
   push:
     branches: [master]
-    paths: ['cloud/**', 'cvstudio_*.py', 'generate.js', 'index.html', 'vendor/cvstudio/app.css', 'requirements*.txt', 'package.json', 'tests/fixtures/cloud_cv_*', '.github/workflows/cloud-interactive-container.yml']
+    tags: ['**']
+  pull_request:
+    branches: [master]
   workflow_dispatch:
+
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  scope:
+    name: Determine test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify scope policy
+        run: python3 .github/ci_scope.py --self-test
+      - id: scope
+        run: python3 .github/ci_scope.py
+
   interactive:
+    needs: scope
+    if: ${{ always() && !cancelled() && (needs.scope.result != 'success' || (needs.scope.outputs.scope != 'online' && needs.scope.outputs.scope != 'docs')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
