@@ -62,7 +62,7 @@ def assemble_workspace(*, config, auth_connect, document_connect,
 
 
 def assemble_worker(*, worker_connect, provider_connect, storage_root,
-                    cipher, catalogue, principals, concurrency=2):
+                    cipher, catalogue, principals, concurrency=2, transport_factory=None):
     """Build a bounded worker without starting it or dispatching AI requests."""
     if not callable(worker_connect) or not callable(provider_connect) or worker_connect is provider_connect:
         raise ValueError("Separate worker and provider connections required")
@@ -70,7 +70,10 @@ def assemble_worker(*, worker_connect, provider_connect, storage_root,
     verify_service_role(provider_connect, "provider_reader")
     documents = OnlineDocumentJobs(worker_connect)
     storage = PrivateStorage(storage_root)
-    provider = ProviderConfig(OnlineDocumentJobs(provider_connect), cipher, catalogue)
+    # Transport injection is available only through this trusted Python factory,
+    # never through HTTP, config files or the deployed entrypoint.
+    provider_options = {} if transport_factory is None else {"transport_factory": transport_factory}
+    provider = ProviderConfig(OnlineDocumentJobs(provider_connect), cipher, catalogue, **provider_options)
     return WorkerRuntime(
         principals=principals,
         repository=documents,
