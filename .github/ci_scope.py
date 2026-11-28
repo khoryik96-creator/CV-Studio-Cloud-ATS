@@ -100,6 +100,24 @@ class ScopeTests(unittest.TestCase):
                            ("push",{"ref":"refs/heads/master","forced":True}),("pull_request",{})):
             self.assertEqual(event_scope(name,event),"full")
 
+    def test_git_diff_routing(self):
+        from unittest.mock import patch
+        base, head = "a"*40, "b"*40
+        event={"pull_request":{"base":{"sha":base},"head":{"sha":head}}}
+        for diff, expected in (
+            (b"M\\0cloud/deploy/online_init.py\\0", "online"),
+            (b"A\\0cloud/app.py\\0M\\0docs/guide.md\\0", "cloud"),
+            (b"M\\0docs/guide.md\\0", "docs"),
+            (b"D\\0cloud/app.py\\0", "full"),
+            (b"M\\0cloud/app.py\\0M\\0cvstudio_engine.py\\0", "full"),
+            (b"M\\0cloud/app.py", "full"),
+        ):
+            # These escaped bytes are decoded into actual NUL-delimited git output.
+            with self.subTest(diff=diff), patch(__name__+".git",side_effect=[base.encode()+b"\n",diff.replace(b"\\0",b"\0")]):
+                self.assertEqual(event_scope("pull_request",event),expected)
+        with patch(__name__+".git",side_effect=subprocess.CalledProcessError(1,"git")):
+            self.assertEqual(event_scope("pull_request",event),"full")
+
 def main():
     if sys.argv[1:]==["--self-test"]:
         unittest.main(argv=[sys.argv[0]])
