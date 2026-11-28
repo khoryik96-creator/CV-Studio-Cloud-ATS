@@ -1,0 +1,8 @@
+# Optional live pilot overlay. Only the explicitly started worker joins egress.
+# The existing worker transport connects to the fixed DeepSeek HTTPS endpoint.
+services:
+  worker:
+    networks: [database, worker_egress]
+networks:
+  worker_egress:
+    driver: bridge

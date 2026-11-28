@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 import os
 import tempfile
@@ -6,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock,patch
 
 from cloud.deploy.workspace_heartbeat import Heartbeat,healthy,MAX_ROUND
-from cloud.deploy.workspace_config import load_policy,require_live_worker_approval,concurrency
+from cloud.deploy.workspace_config import load_policy,require_live_worker_approval,concurrency,live_worker_cutoff
 from cloud.frontend.shell import render_shell
 
 class WorkspaceRuntimeTests(unittest.TestCase):
@@ -39,6 +40,13 @@ class WorkspaceRuntimeTests(unittest.TestCase):
         with patch.dict(os.environ,{"CVCLOUD_WORKER_CONCURRENCY":"5"}):
             with self.assertRaises(ValueError):
                 concurrency()
+
+    def test_live_worker_requires_fixed_cutoff(self):
+        with patch.dict(os.environ, {"CVCLOUD_LIVE_AI": "operator-approved"}, clear=True):
+            with self.assertRaises(ValueError):
+                live_worker_cutoff()
+            os.environ["CVCLOUD_WORKER_ADMIT_AFTER"] = "2026-11-28T16:00:00Z"
+            self.assertEqual(live_worker_cutoff(), datetime(2026, 11, 28, 16, tzinfo=timezone.utc))
 
     def test_explicit_catalogue_and_keyring(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -75,6 +83,7 @@ class WorkspaceRuntimeTests(unittest.TestCase):
     def test_candidate_ui_does_not_enable_unverified_modules(self):
         self.assertIn(b"Cloud staging",render_shell())
         candidate=render_shell(online_candidate=True,enable_scoring=True,enable_batch=True)
+        self.assertIn(b'data-resume-session="true"',candidate)
         self.assertIn(b"Online workspace candidate",candidate)
         self.assertNotIn(b"Cloud staging",candidate)
         with self.assertRaises(ValueError):

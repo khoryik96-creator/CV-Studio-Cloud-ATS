@@ -5,6 +5,7 @@ uses the existing owner-scoped RLS transaction. Expiry is terminal for an
 attempt: uncertain external work is marked needs_review, not replayed.
 """
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 from cloud.documents_jobs import uid
 from cloud.job_state import State
@@ -19,8 +20,13 @@ class Lease:
     token: str
 
 class WorkerLeases:
-    def __init__(self, repository):
+    def __init__(self, repository, *, created_after=None):
+        if created_after is not None and (
+            not isinstance(created_after, datetime) or created_after.utcoffset() is None
+        ):
+            raise ValueError("Worker cutoff must be timezone-aware")
         self.repository = repository
+        self.created_after = created_after
 
     def claim(self, principal, *, cv_only=False, include_scoring=False, include_reports=False, include_profile=False, include_blind_jd=False):
         if type(cv_only) is not bool or type(include_scoring) is not bool or type(include_reports) is not bool or type(include_profile) is not bool or type(include_blind_jd) is not bool:
@@ -37,6 +43,7 @@ class WorkerLeases:
                 JOIN cvcloud.users u ON (u.tenant_id,u.id)=(j.tenant_id,j.owner_id)
                 JOIN cvcloud.tenants t ON t.id=j.tenant_id
                 WHERE j.tenant_id=%s AND j.owner_id=%s AND j.state='queued' AND u.active AND t.active
+                AND j.created_at > COALESCE(%s::timestamptz, '-infinity'::timestamptz)
                 AND (NOT %s OR j.module IN ('cv_formatting','cv_blinding')
                     OR (%s AND j.module='cv_scoring' AND j.scoring_jd_id IS NOT NULL)
                     OR (%s AND j.module IN ('blind_jd','company_profile') AND j.report_options IS NOT NULL)
@@ -50,7 +57,7 @@ class WorkerLeases:
                   updated_at=clock_timestamp()
               FROM next_job n WHERE j.tenant_id=%s AND j.owner_id=%s AND j.id=n.id
               RETURNING j.id::text,j.document_id::text,j.module,j.lease_token::text""",
-                (tenant,owner,cv_only,include_scoring,include_reports,include_blind_jd,include_profile,token,LEASE_SECONDS,tenant,owner)).fetchone()
+                (tenant,owner,self.created_after,cv_only,include_scoring,include_reports,include_blind_jd,include_profile,token,LEASE_SECONDS,tenant,owner)).fetchone()
         return Lease(*row) if row else None
 
     def heartbeat(self, principal, lease):

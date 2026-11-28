@@ -147,9 +147,17 @@ class DocumentJobs:
                     WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (Jsonb(profile),tenant,user,job_id))
             return job_id
 
-    def job(self, principal, job_id):
+    def job(self, principal, job_id, *, include_elapsed=False):
+        fields = "id::text,module,state,document_id::text"
+        if include_elapsed:
+            # Active jobs use the database clock. Terminal jobs retain the
+            # timestamp written with their final state, even after reload.
+            fields += """, GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
+                CASE WHEN state IN ('queued','running') THEN statement_timestamp()
+                     ELSE updated_at END - created_at
+            )) * 1000))::bigint"""
         with self.scoped(principal) as (conn,tenant,user):
-            return conn.execute("""SELECT id::text,module,state,document_id::text
+            return conn.execute("SELECT " + fields + """
                 FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s AND id=%s""",
                 (tenant,user,uid(job_id))).fetchone()
 

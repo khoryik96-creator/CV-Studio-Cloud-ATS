@@ -8,7 +8,7 @@ const file=name=>({name});
    upload:async()=>String(++uploads),
    prepare:(doc,module,options)=>({doc,module,options,key:"key-"+doc}),
    submit:async intent=>{submits.push(intent);if(fail){fail=false;throw Error("uncertain");}return "job-"+intent.doc;},
-   status:async jobId=>({job_id:jobId,document_id:jobId.slice(4),module:"cv_blinding",state:states[jobId]||"needs_review"}),
+   status:async jobId=>({job_id:jobId,document_id:jobId.slice(4),module:"cv_blinding",state:states[jobId]||"needs_review",elapsed_ms:4500}),
    download:async(jobId,options)=>{assert.equal(options.review,true);return {blob:"fixture",requiresReview:true};}
  };
  const batch=create({client,validateSource:f=>{if(!f.name.endsWith(".txt"))throw Error("unsupported");}});
@@ -27,10 +27,16 @@ const file=name=>({name});
  assert.equal(submits[2].options.alignment,"justify");
  await batch.refresh();
  assert.deepEqual(batch.snapshot().map(r=>r.state),["needs_review","needs_review"]);
+ assert.deepEqual(batch.snapshot().map(r=>r.elapsedMs),[4500,4500]);
  await batch.download(0,()=>false,x=>downloads.push(x));assert.equal(downloads.length,0);
  await batch.download(0,()=>true,x=>downloads.push(x));
  await batch.download(1,()=>true,x=>downloads.push(x));
  assert.deepEqual(downloads.map(x=>x.filename),["cv-01-review.docx","cv-02-review.docx"]);
+ const all=[];
+ await batch.downloadAll(()=>false,x=>all.push(x));
+ assert.equal(all.length,0);
+ assert.deepEqual(await batch.downloadAll(()=>true,x=>all.push(x)),{started:2,failed:0,total:2});
+ assert.deepEqual(all.map(x=>x.filename),["cv-01-review.docx","cv-02-review.docx"]);
  assert.equal(batch.clear(),true);assert.equal(batch.snapshot().length,0);
  const uncertain=create({client:{...client,upload:async()=>{throw Error("lost response");}},validateSource:()=>{}});
  uncertain.select([file("one.txt"),file("two.txt")]);await uncertain.start("cv_formatting",{});

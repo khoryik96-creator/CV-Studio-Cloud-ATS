@@ -1,4 +1,5 @@
 """Explicit, file-based online workspace configuration. No default provider prices."""
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -54,3 +55,14 @@ def concurrency():
 def require_live_worker_approval():
     if os.environ.get("CVCLOUD_LIVE_AI")!="operator-approved":
         raise RuntimeError("Live AI worker disabled pending explicit approval")
+
+
+def live_worker_cutoff():
+    """Require an explicit, fixed UTC cutover on every live-worker restart."""
+    require_live_worker_approval()
+    value = os.environ.get("CVCLOUD_WORKER_ADMIT_AFTER", "")
+    try:
+        cutoff = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise ValueError("Set a fixed UTC worker cutoff (YYYY-MM-DDTHH:MM:SSZ)") from None
+    return cutoff

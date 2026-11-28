@@ -50,6 +50,11 @@ def _clean(node):
         node.set("type","button")
     return node
 
+def _lock_summary_toggle(toggle):
+    toggle.set("disabled", "disabled")
+    toggle.attrib.pop("checked", None)
+    toggle.tail = (toggle.tail or "").rstrip() + " · Locked (cloud summary unavailable)"
+
 def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,enable_blind_jd=False,enable_profile=False,enable_provider_settings=False,enable_history=False,enable_accounts=False,enable_usage=False,online_candidate=False):
     from lxml import html, etree
     source=html.parse(str(ROOT/"index.html"),parser=html.HTMLParser(no_network=True)).getroot()
@@ -89,11 +94,10 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
                     raise ValueError("Original scoring label missing")
                 labels[0].text="CV Scoring"
     view=deepcopy(_one(source,"viewFormat"))
-    for key in ("singleAiQuickPanel","singleSummaryToggle","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
+    for key in ("singleAiQuickPanel","cvSingleFormattingReviewNotice","formatSummaryNote","btnJALogin","jaBar","cvFormattingReviewPanel"):
         node=_one(view,key)
-        if key=="singleSummaryToggle":
-            node=node.getparent()
         node.getparent().remove(node)
+    _lock_summary_toggle(_one(view,"singleSummaryToggle"))
     for node in view.xpath(".//*[@data-cv-open-ready]"):
         node.getparent().remove(node)
     _one(view,"fileInput").set("accept",".pdf,.docx,.txt")
@@ -118,23 +122,23 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         raise ValueError('Unverified research and CRM modules must remain disabled')
     shell=html.fromstring("""<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV Studio Cloud</title><link rel="stylesheet" href="/cloud-ui/assets/app.css"><script src="/cloud-ui/assets/cv_client.js" defer></script><script src="/cloud-ui/assets/existing_cv_controls.js" defer></script><script src="/cloud-ui/assets/bootstrap.js" defer></script></head><body><div class="app"><div class="header"><div><h1>CV Studio</h1><p>Cloud staging · fictional documents only</p></div><button id="cloudLogout" class="sec" type="button" style="display:none" hidden>Sign out</button></div><section class="card" id="cloudLoginPanel"><div class="card-head"><h2>Sign in</h2></div><div class="card-body"><form id="cloudLogin" method="post" action="/cloud-ui"><label>Organisation <input name="tenant" required autocomplete="organization" maxlength="63"></label><label>Email <input name="email" required type="email" autocomplete="username" maxlength="254"></label><label>Password <input name="password" required type="password" autocomplete="current-password" maxlength="256"></label><button type="submit" class="primary">Sign in</button></form></div></section><p id="cloudMessage" role="status" aria-live="polite"></p><div id="cloudContent" style="display:none"><div class="card" id="cloudJobOptions"><div class="card-body"><div class="btn-row"><label>CV alignment <select id="cloudAlignment"><option value="left">Left</option><option value="justify">Justify</option></select></label><label><input type="checkbox" id="cloudLanguage"> Correct spelling and grammar</label><label><input type="checkbox" id="cloudNeutral"> Gender-neutral blinded CV</label></div><p>Word download is available after processing. Structured preview, summary, batch and other module integration are pending.</p><div class="btn-row"><button class="sec" type="button" id="cloudRefresh">Refresh job status</button><button class="sec" type="button" id="cloudRecover">Recover unconfirmed submission</button></div></div></div></div></div></body></html>""")
     if online_candidate:
+        _one(shell,"cloudLoginPanel").set("data-resume-session","true")
         shell.xpath("//div[@class='header']/div/p")[0].text = "Online workspace candidate · test documents only; not approved for production"
     content=_one(shell,"cloudContent")
     content.insert(0,nav)
     content.append(view)
     if enable_batch:
         batch=deepcopy(_one(source,"viewBatch"))
-        for key in ("batchAiQuickPanel","batchSummaryToggle","btnBatchDownload","batchTotalCost","batchTimer","batchJAStatus","batchJAConnBadge"):
+        for key in ("batchAiQuickPanel","batchTotalCost","batchJAStatus","batchJAConnBadge"):
             item=_one(batch,key)
-            if key=="batchSummaryToggle":
-                item=item.getparent()
             item.getparent().remove(item)
+        _lock_summary_toggle(_one(batch,"batchSummaryToggle"))
         for item in batch.xpath(".//*[@data-cv-open-ready]"):
             item.getparent().remove(item)
         for item in batch.xpath(".//button"):
             if item.get("onclick")=="clearBatch()":
                 item.set("id","cloudBatchClear")
-            if item.get("id")=="btnBatchRun":
+            if item.get("id") in {"btnBatchRun","btnBatchDownload"}:
                 item.set("disabled","disabled")
         file_input=_one(batch,"batchFileInput")
         file_input.set("accept",".pdf,.docx,.txt")
@@ -154,7 +158,7 @@ def render_shell(*,enable_batch=False,enable_scoring=False,enable_reports=False,
         bootstrap=shell.xpath(".//script[@src='/cloud-ui/assets/bootstrap.js']")[0]
         bootstrap.addprevious(script)
         options=content.xpath(".//*[@id='cloudJobOptions']//p")[0]
-        options.text="Shared CV options apply when starting a batch. Each completed file is downloaded individually; structured preview and other modules are pending."
+        options.text="Shared CV options apply when starting a batch. Download completed files individually or together."
     if enable_scoring:
         scoring = deepcopy(_one(source, "viewAppraiser"))
         for key in ("appraiserRouteBadge", "appraiserAiQuickHint", "appraiserSalary",

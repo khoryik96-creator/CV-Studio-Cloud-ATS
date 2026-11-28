@@ -68,6 +68,33 @@ class TestPostgres(unittest.TestCase):
                 VALUES (%s,%s,%s,%s,10,%s,true)""", (tenant,owner,jobs[0],str(uuid4()),"b"*64))
         self.assertIsNotNone(self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4())))
 
+    def test_cv_job_elapsed_is_owner_scoped_and_stops_at_completion(self):
+        principal, other = self.principals
+        doc = self.repo.register_document(principal, media_type="text/plain", byte_size=10, sha256="a"*64)
+        job = self.repo.enqueue(principal, document_id=doc, module="cv_formatting", idempotency_key=str(uuid4()))
+        with self.repo.scoped(principal) as (conn, tenant, owner):
+            conn.execute("""UPDATE cvcloud.jobs SET created_at=statement_timestamp()-interval '5 seconds'
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, job))
+        self.assertGreaterEqual(self.repo.job(principal, job, include_elapsed=True)[4], 5000)
+        self.assertIsNone(self.repo.job(other, job, include_elapsed=True))
+        with self.repo.scoped(principal) as (conn, tenant, owner):
+            conn.execute("""UPDATE cvcloud.jobs SET state='needs_review', updated_at=created_at+interval '2.5 seconds'
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, job))
+        self.assertEqual(self.repo.job(principal, job, include_elapsed=True)[4], 2500)
+
+    def test_live_worker_cutoff_leaves_existing_jobs_queued(self):
+        from cloud.worker_leases import WorkerLeases
+
+        principal = self.principals[0]
+        document = self.repo.register_document(principal, media_type="text/plain", byte_size=10, sha256="a"*64)
+        previous = self.repo.enqueue(principal, document_id=document, module="cv_formatting", idempotency_key=str(uuid4()))
+        with self.repo.scoped(principal) as (conn, tenant, owner):
+            cutoff = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+        fresh = self.repo.enqueue(principal, document_id=document, module="cv_blinding", idempotency_key=str(uuid4()))
+        worker = WorkerLeases(self.repo, created_after=cutoff)
+        self.assertEqual(worker.claim(principal, cv_only=True).job_id, fresh)
+        self.assertEqual(self.repo.job(principal, previous)[2], "queued")
+
     def test_fenced_worker_lifecycle(self):
         from cloud.worker_leases import WorkerLeases, Lease
         a,b=self.principals
@@ -371,7 +398,9 @@ class TestPostgres(unittest.TestCase):
         import tempfile,zipfile
         from urllib.parse import urlsplit
         from playwright.sync_api import sync_playwright,expect
+        from unittest.mock import patch
         from cloud.staging import compose_synthetic
+        from cloud.frontend.shell import register_existing_ui
         a,b=self.principals
         origin="https://cv.example.test"
         fixtures=Path(__file__).with_name("fixtures")
@@ -380,8 +409,10 @@ class TestPostgres(unittest.TestCase):
         with psycopg.connect(DSN) as conn:
             conn.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)",(a.tenant_id,))
         with tempfile.TemporaryDirectory() as folder, sync_playwright() as pw:
-            env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
-                fixture_source=source,fixture_answer=parsed,enable_batch=True)
+            with patch("cloud.staging.register_existing_ui", side_effect=lambda app, **options:
+                       register_existing_ui(app, online_candidate=True, **options)):
+                env=compose_synthetic(connect=self.connect,storage_root=folder,principals=[a],public_origin=origin,
+                    fixture_source=source,fixture_answer=parsed,enable_batch=True)
             browser=pw.chromium.launch()
             context=browser.new_context(accept_downloads=True)
             page=context.new_page()
@@ -418,9 +449,12 @@ class TestPostgres(unittest.TestCase):
                 page.locator("#cloudLogin button").click()
                 expect(page.locator("#cloudContent")).to_be_visible()
                 expect(page.locator("#cloudLoginPanel")).to_be_hidden()
+                page.reload()
+                expect(page.locator("#cloudContent")).to_be_visible()
+                expect(page.locator("#cloudLoginPanel")).to_be_hidden()
                 expect(page.locator("#btnFormat")).to_be_enabled()
                 expect(page.locator("#tabBatch")).to_be_enabled()
-                assert page.locator("#tabJobLeads").count()==0
+                assert page.locator("#tabJobLeads:not([disabled])").count()==0
                 page.locator("#cvInput").fill(source)
                 page.locator("#cloudAlignment").select_option("justify")
                 page.locator("#btnFormat").click()
@@ -457,6 +491,12 @@ class TestPostgres(unittest.TestCase):
                 with page.expect_download() as batch_download:
                     page.locator("#batchFileList button").first.click()
                 self.assertTrue(batch_download.value.suggested_filename.startswith("cv-01"))
+                with page.expect_download(lambda item: item.suggested_filename.startswith("cv-01")) as first:
+                    with page.expect_download(lambda item: item.suggested_filename.startswith("cv-02")) as second:
+                        page.locator("#btnBatchDownload").click()
+                self.assertTrue(first.value.suggested_filename.endswith(".docx"))
+                self.assertTrue(second.value.suggested_filename.endswith(".docx"))
+                expect(page.locator("#batchSummary")).to_contain_text("2 / 2 downloads started.")
                 page.locator("#cloudLogout").click()
                 expect(page.locator("#cloudLoginPanel")).to_be_visible()
                 expect(page.locator("#batchFileList .batch-file-item")).to_have_count(0)
