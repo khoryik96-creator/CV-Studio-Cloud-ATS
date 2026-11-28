@@ -52,17 +52,18 @@ services:
         aliases: [cv.example.test]
       ingress: {}
     ports:
-      - "127.0.0.1:443:8443"
+      - "127.0.0.1:${CVCLOUD_FIXTURE_PORT:-443}:8443"
     depends_on:
       seed:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD","python","-m","cloud.deploy.interactive_check","health"]
+      test: ["CMD","python","-m","cloud.deploy.interactive_check","ready"]
       interval: 5s
       timeout: 5s
       retries: 20
   worker:
     <<: *fixture
+    restart: on-failure
     command: ["python","-m","cloud.deploy.interactive","worker"]
     environment: *runtime
     volumes:

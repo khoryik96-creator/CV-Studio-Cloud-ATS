@@ -16,4 +16,4 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sh -n cloud/deploy/interactive-smoke.sh
-      - run: sh cloud/deploy/interactive-smoke.sh
+      - run: sh cloud/deploy/interactive-smoke.sh --verify-restore

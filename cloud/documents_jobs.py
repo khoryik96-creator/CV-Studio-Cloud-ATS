@@ -111,8 +111,12 @@ class DocumentJobs:
             if scoring is not None and not conn.execute("""SELECT id FROM cvcloud.documents
                 WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant,user,jd_id)).fetchone():
                 raise ScopeError("JD not found")
-            count=conn.execute("""SELECT count(*) FROM cvcloud.jobs WHERE tenant_id=%s AND owner_id=%s
-                AND state IN ('queued','running','needs_review')""",(tenant,user)).fetchone()[0]
+            # A completed, review-only document still needs a human check,
+            # but occupies no queue slot. Uncertain attempts stay bounded.
+            count=conn.execute("""SELECT count(*) FROM cvcloud.jobs j WHERE j.tenant_id=%s AND j.owner_id=%s
+                AND (j.state IN ('queued','running') OR (j.state='needs_review' AND NOT EXISTS (
+                    SELECT 1 FROM cvcloud.job_outputs o WHERE (o.tenant_id,o.owner_id,o.job_id)=(j.tenant_id,j.owner_id,j.id)
+                )))""",(tenant,user)).fetchone()[0]
             if count >= 10:
                 raise JobConflict("Outstanding job limit reached")
             job_id=str(uuid4())

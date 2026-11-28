@@ -49,6 +49,25 @@ class TestPostgres(unittest.TestCase):
         with self.connect() as conn:
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.documents").fetchone()[0],0)
             self.assertEqual(conn.execute("SELECT count(*) FROM cvcloud.jobs").fetchone()[0],0)
+    def test_review_only_documents_do_not_block_new_batches(self):
+        a = self.principals[0]
+        doc = self.repo.register_document(a, media_type="text/plain", byte_size=10, sha256="a"*64)
+        jobs = [self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4()))
+                for _ in range(10)]
+        with self.assertRaises(JobConflict):
+            self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4()))
+        with self.repo.scoped(a) as (conn, tenant, owner):
+            # A review state alone can represent an uncertain attempt.
+            conn.execute("""UPDATE cvcloud.jobs SET state='needs_review'
+                WHERE tenant_id=%s AND owner_id=%s AND id=%s""", (tenant, owner, jobs[0]))
+        with self.assertRaises(JobConflict):
+            self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4()))
+        with self.repo.scoped(a) as (conn, tenant, owner):
+            conn.execute("""INSERT INTO cvcloud.job_outputs
+                (tenant_id,owner_id,job_id,object_id,byte_size,sha256,requires_review)
+                VALUES (%s,%s,%s,%s,10,%s,true)""", (tenant,owner,jobs[0],str(uuid4()),"b"*64))
+        self.assertIsNotNone(self.repo.enqueue(a, document_id=doc, module="cv_blinding", idempotency_key=str(uuid4())))
+
     def test_fenced_worker_lifecycle(self):
         from cloud.worker_leases import WorkerLeases, Lease
         a,b=self.principals

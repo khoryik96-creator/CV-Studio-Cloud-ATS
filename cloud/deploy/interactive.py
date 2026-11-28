@@ -5,6 +5,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+from threading import Event, Thread
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +21,8 @@ PASSWORD = "fictional-staging-only-123"
 EMAIL = "synthetic@example.test"
 STORAGE = "/srv/cvcloud/data"
 CERT = "/tmp/cvcloud.crt"
+WORKER_MARKER = Path(STORAGE) / ".fixture-worker-heartbeat"
+WORKER_STALE_SECONDS = 12
 
 def connect():
     import psycopg
@@ -95,12 +98,37 @@ def environment(*, reverse=False):
         fixture_jobadder_key=os.environ.get(ACCOUNT_SECRET_ENV),
         strict_upload=True,enable_batch=True,concurrency=1)
 
+def staging_ready():
+    from flask import jsonify
+    from psycopg import Error as DatabaseError
+    try:
+        worker_age = time.time() - WORKER_MARKER.stat().st_mtime
+        if not 0 <= worker_age <= WORKER_STALE_SECONDS or not os.access(STORAGE, os.R_OK | os.W_OK | os.X_OK):
+            raise OSError("Fixture worker or storage unavailable")
+        with connect() as db:
+            db.execute("SELECT 1")
+    except (OSError, RuntimeError, DatabaseError):
+        return jsonify(status="not_ready"), 503
+    return jsonify(status="ready", stage="synthetic"), 200
+
+
+def _publish_worker_heartbeat(stop):
+    while not stop.is_set():
+        try:
+            WORKER_MARKER.touch(mode=0o600)
+        except OSError:
+            pass
+        stop.wait(3)
+
+
 def web():
     from werkzeug.serving import make_ssl_devcert, run_simple
     # Local synthetic development TLS only. Never disable TLS verification.
     os.umask(0o077)
     cert = make_ssl_devcert("/tmp/cvcloud",host=HOST)
-    run_simple("0.0.0.0",8443,environment().app,ssl_context=cert,
+    app = environment().app
+    app.add_url_rule("/staging-readyz", view_func=staging_ready)
+    run_simple("0.0.0.0",8443,app,ssl_context=cert,
                threaded=True,use_reloader=False,use_debugger=False)
 
 def worker():
@@ -111,20 +139,30 @@ def worker():
         raise SystemExit(0)
     signal.signal(signal.SIGTERM,stop)
     signal.signal(signal.SIGINT,stop)
-    reverse = False
-    while True:
-        action = "tick-other" if reverse else "tick"
-        reverse = not reverse
-        child = subprocess.Popen([sys.executable,"-m","cloud.deploy.interactive",action],start_new_session=True)
-        try:
-            child.wait(timeout=660)
-        except subprocess.TimeoutExpired:
-            print("Synthetic worker round exceeded deadline",flush=True)
-        finally:
-            if child.poll() is None:
-                os.killpg(child.pid,signal.SIGKILL)
-                child.wait()
-        time.sleep(3)
+    os.umask(0o077)
+    stop_heartbeat = Event()
+    heartbeat = Thread(target=_publish_worker_heartbeat, args=(stop_heartbeat,), daemon=True)
+    heartbeat.start()
+    try:
+        reverse = False
+        while True:
+            action = "tick-other" if reverse else "tick"
+            reverse = not reverse
+            child = subprocess.Popen([sys.executable,"-m","cloud.deploy.interactive",action],start_new_session=True)
+            try:
+                child.wait(timeout=660)
+            except subprocess.TimeoutExpired:
+                print("Synthetic worker round exceeded deadline",flush=True)
+            finally:
+                if child.poll() is None:
+                    os.killpg(child.pid,signal.SIGKILL)
+                    child.wait()
+            time.sleep(3)
+    finally:
+        stop_heartbeat.set()
+        heartbeat.join()
+        WORKER_MARKER.unlink(missing_ok=True)
+
 
 def main():
     actions={"seed":seed,"web":web,"worker":worker,"tick":lambda:environment().worker.tick(),
