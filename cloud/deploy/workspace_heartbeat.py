@@ -7,7 +7,7 @@ existing database lease fencing handles uncertain work after expiry.
 import json
 import os
 from pathlib import Path
-from threading import Event, Lock, Thread
+from threading import Event, RLock, Thread
 from time import monotonic
 from uuid import uuid4
 
@@ -21,34 +21,35 @@ class Heartbeat:
         self.path=Path(path)
         self.clock=clock
         self.exit_process=exit_process
-        self._lock=Lock()
+        self._lock=RLock()
         self._stop=Event()
         self._status="starting"
         self._since=self.clock()
         self._thread=None
 
     def _write(self):
-        now=self.clock()
+        # Serialize the snapshot and atomic replacement with state transitions.
         with self._lock:
+            now=self.clock()
             status,since=self._status,self._since
-        if status in ("starting","running") and now-since>MAX_ROUND:
-            self.exit_process(1)
-            return
-        tmp=self.path.with_name(self.path.name+"."+uuid4().hex)
-        try:
-            with tmp.open("x",encoding="utf-8") as output:
-                json.dump({"state":status,"updated":now,"since":since},output)
-            os.chmod(tmp,0o600)
-            os.replace(tmp,self.path)
-        finally:
-            tmp.unlink(missing_ok=True)
+            if status in ("starting","running") and now-since>MAX_ROUND:
+                self.exit_process(1)
+                return
+            tmp=self.path.with_name(self.path.name+"."+uuid4().hex)
+            try:
+                with tmp.open("x",encoding="utf-8") as output:
+                    json.dump({"state":status,"updated":now,"since":since},output)
+                os.chmod(tmp,0o600)
+                os.replace(tmp,self.path)
+            finally:
+                tmp.unlink(missing_ok=True)
 
     def set(self,status):
         if status not in ("starting","running","idle","degraded","stopping"):
             raise ValueError("Unknown heartbeat status")
         with self._lock:
             self._status,self._since=status,self.clock()
-        self._write()
+            self._write()
 
     def _loop(self):
         while not self._stop.wait(INTERVAL):
