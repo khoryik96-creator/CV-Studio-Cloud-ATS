@@ -1,0 +1,156 @@
+# Internal workspace candidate. No published ports, no external egress or HyPlug networks.
+name: cvcloud-online-workspace
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: cloud/deploy/Dockerfile.online-workspace
+  image: cvcloud-online-workspace:local
+  read_only: true
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=192m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  mem_limit: 1024m
+  cpus: 1
+  pids_limit: 64
+  logging:
+    driver: json-file
+    options: {max-size: "5m", max-file: "2"}
+services:
+  online-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cvcloud_online
+      POSTGRES_USER: cvcloud_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/bootstrap_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    secrets: [bootstrap_password]
+    volumes: [online_database:/var/lib/postgresql/data]
+    networks: [database]
+    mem_limit: 768m
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cvcloud_bootstrap", "-d", "cvcloud_online"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  initialize:
+    <<: *app
+    command: ["python","-m","cloud.deploy.online_init"]
+    environment:
+      CVCLOUD_BOOTSTRAP_PASSWORD_FILE: /run/secrets/bootstrap_password
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+      CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password
+    secrets: [bootstrap_password,schema_password,auth_password]
+    networks: [database]
+    depends_on:
+      online-db: {condition: service_healthy}
+  migrate:
+    <<: *app
+    command: ["python","-m","cloud.deploy.online_workspace_schema"]
+    environment:
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+    secrets: [schema_password]
+    networks: [database]
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+  grant-install:
+    <<: *app
+    command: ["python","-m","cloud.deploy.workspace_grant_install"]
+    environment:
+      CVCLOUD_BOOTSTRAP_PASSWORD_FILE: /run/secrets/bootstrap_password
+      CVCLOUD_DOCUMENT_PASSWORD_FILE: /run/secrets/document_password
+      CVCLOUD_PROVIDER_PASSWORD_FILE: /run/secrets/provider_password
+      CVCLOUD_WORKER_PASSWORD_FILE: /run/secrets/worker_password
+      CVCLOUD_PROVIDER_READER_PASSWORD_FILE: /run/secrets/provider_reader_password
+      CVCLOUD_SCHEDULER_PASSWORD_FILE: /run/secrets/scheduler_password
+    secrets: [bootstrap_password, document_password, provider_password, worker_password, provider_reader_password, scheduler_password]
+    networks: [database]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  web:
+    <<: *app
+    command: ["python","-m","cloud.deploy.workspace_entry","web"]
+    environment:
+      CVCLOUD_PUBLIC_ORIGIN: "${CVCLOUD_PUBLIC_ORIGIN:?Set exact HTTPS origin}"
+      CVCLOUD_TRUSTED_PROXY_IP: "${CVCLOUD_TRUSTED_PROXY_IP:?Set reserved ingress proxy IP}"
+      CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password
+      CVCLOUD_DOCUMENT_PASSWORD_FILE: /run/secrets/document_password
+      CVCLOUD_PROVIDER_PASSWORD_FILE: /run/secrets/provider_password
+      CVCLOUD_KEYRING_FILE: /run/secrets/keyring
+      CVCLOUD_MODEL_CATALOGUE_FILE: /run/secrets/model_catalogue
+    secrets: [auth_password, document_password, provider_password, keyring, model_catalogue]
+    networks: [database,ingress]
+    volumes: [workspace_documents:/srv/cvcloud/data]
+    depends_on:
+      grant-install: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD","python","-m","cloud.deploy.workspace_check"]
+      interval: 15s
+      timeout: 20s
+      retries: 10
+  worker:
+    <<: *app
+    profiles: [operator-worker]
+    command: ["python","-m","cloud.deploy.workspace_entry","worker"]
+    environment:
+      CVCLOUD_LIVE_AI: "${CVCLOUD_LIVE_AI:-disabled}"
+      CVCLOUD_WORKER_CONCURRENCY: "${CVCLOUD_WORKER_CONCURRENCY:-2}"
+      CVCLOUD_WORKER_PASSWORD_FILE: /run/secrets/worker_password
+      CVCLOUD_PROVIDER_READER_PASSWORD_FILE: /run/secrets/provider_reader_password
+      CVCLOUD_SCHEDULER_PASSWORD_FILE: /run/secrets/scheduler_password
+      CVCLOUD_KEYRING_FILE: /run/secrets/keyring
+      CVCLOUD_MODEL_CATALOGUE_FILE: /run/secrets/model_catalogue
+    secrets: [worker_password, provider_reader_password, scheduler_password, keyring, model_catalogue]
+    networks: [database]
+    volumes: [workspace_documents:/srv/cvcloud/data]
+    restart: "no"
+    stop_grace_period: 11m
+    depends_on:
+      grant-install: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD","python","-m","cloud.deploy.workspace_heartbeat"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  owner:
+    <<: *app
+    profiles: [operator]
+    entrypoint: ["python","-m","cloud.deploy.online_owner"]
+    environment:
+      CVCLOUD_SCHEMA_PASSWORD_FILE: /run/secrets/schema_password
+    secrets: [schema_password]
+    networks: [database]
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+networks:
+  database:
+    internal: true
+  ingress:
+    internal: true
+    ipam:
+      config:
+        - subnet: "${CVCLOUD_INGRESS_SUBNET:?Set unused dedicated subnet}"
+volumes:
+  online_database:
+  workspace_documents:
+secrets:
+  bootstrap_password:
+    file: "${CVCLOUD_BOOTSTRAP_SECRET_PATH:?Set protected bootstrap secret path}"
+  schema_password:
+    file: "${CVCLOUD_SCHEMA_SECRET_PATH:?Set protected schema secret path}"
+  auth_password:
+    file: "${CVCLOUD_AUTH_SECRET_PATH:?Set protected auth secret path}"
+  document_password:
+    file: "${CVCLOUD_DOCUMENT_SECRET_PATH:?Set protected document secret path}"
+  provider_password:
+    file: "${CVCLOUD_PROVIDER_SECRET_PATH:?Set protected provider secret path}"
+  worker_password:
+    file: "${CVCLOUD_WORKER_SECRET_PATH:?Set protected worker secret path}"
+  provider_reader_password:
+    file: "${CVCLOUD_PROVIDER_READER_SECRET_PATH:?Set protected provider_reader secret path}"
+  scheduler_password:
+    file: "${CVCLOUD_SCHEDULER_SECRET_PATH:?Set protected scheduler secret path}"
+  keyring:
+    file: "${CVCLOUD_KEYRING_SECRET_PATH:?Set protected keyring file}"
+  model_catalogue:
+    file: "${CVCLOUD_MODEL_CATALOGUE_PATH:?Set approved model catalogue file}"
