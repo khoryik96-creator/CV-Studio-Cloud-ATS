@@ -25,6 +25,8 @@ class WorkspacePostgresTest(unittest.TestCase):
         from cloud.deploy.online_workspace_schema import apply_workspace_schema
         from cloud.deploy.workspace_grant_install import ROLES,install_grants
         from cloud.deploy.workspace_repository import OnlineDocumentJobs
+        from cloud.deploy.workspace_admin_install import ROLE as ADMIN_ROLE
+        from tests.cloud_online_admin_acceptance import verify_admin_acceptance
         from cloud.deploy.workspace_roles import discover_roster
         from cloud.provider_config import ProviderCatalogue,ProviderConfig
         from cloud.private_storage import PrivateStorage
@@ -34,7 +36,7 @@ class WorkspacePostgresTest(unittest.TestCase):
         dsn=os.environ["CVCLOUD_TEST_DSN"]
         parsed=conninfo_to_dict(dsn)
         self.assertEqual((parsed.get("host"),parsed.get("dbname")),("127.0.0.1","cvcloud_test"))
-        credentials={r:secrets.token_hex(32) for r in (online_init.BOOT,online_init.OWNER,online_init.AUTH,*ROLES.values())}
+        credentials={r:secrets.token_hex(32) for r in (online_init.BOOT,online_init.OWNER,online_init.AUTH,*ROLES.values(),ADMIN_ROLE)}
         created_boot=created_db=False
         admin=psycopg.connect(dsn,autocommit=True)
         def connect(role,password=None):
@@ -77,6 +79,10 @@ class WorkspacePostgresTest(unittest.TestCase):
             with connect(ROLES["document"]) as c:
                 self.assertEqual(c.execute("SELECT cvcloud.lock_workspace_account(true)").fetchone(),(None,))
                 self.assertEqual(c.execute("SELECT count(*) FROM cvcloud.documents").fetchone(),(0,))
+            verify_admin_acceptance(self,boot_connect=lambda:connect(online_init.BOOT),
+                owner_connect=owner,admin_connect=lambda:connect(ADMIN_ROLE),
+                auth_connect=lambda:connect(online_init.AUTH),
+                password=credentials[ADMIN_ROLE],owner_a=a,owner_b=b)
             doc=OnlineDocumentJobs(lambda:connect(ROLES["document"]))
             worker=OnlineDocumentJobs(lambda:connect(ROLES["worker"]))
             writer=OnlineDocumentJobs(lambda:connect(ROLES["provider"]))
@@ -105,7 +111,7 @@ class WorkspacePostgresTest(unittest.TestCase):
                 from cloud.deploy.online_auth import OnlineAuthConfig
                 app=assemble_workspace(config=OnlineAuthConfig("https://cvstudio.hyplug.co","127.0.0.1",credentials[online_init.AUTH]),
                     auth_connect=lambda:connect(online_init.AUTH),document_connect=lambda:connect(ROLES["document"]),
-                    provider_connect=lambda:connect(ROLES["provider"]),storage_root=Path(tmp).resolve(),
+                    provider_connect=lambda:connect(ROLES["provider"]),admin_connect=lambda:connect(ADMIN_ROLE),storage_root=Path(tmp).resolve(),
                     cipher=cipher,catalogue=catalogue)
                 with app.test_client() as client:
                     headers={"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https"}
