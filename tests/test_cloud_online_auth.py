@@ -60,7 +60,7 @@ class OnlineAuthPostgresTest(unittest.TestCase):
         import secrets
         import psycopg
         from psycopg.conninfo import conninfo_to_dict, make_conninfo
-        from cloud.auth import password_hash
+        from cloud.deploy.online_owner import provision_owner
         from cloud.deploy.online_auth import OnlineAuthConfig, build_online_auth
         admin_dsn=os.environ["CVCLOUD_TEST_DSN"]
         parsed=conninfo_to_dict(admin_dsn)
@@ -68,25 +68,37 @@ class OnlineAuthPostgresTest(unittest.TestCase):
             self.fail("Refusing non-disposable CI database")
         root=Path(__file__).resolve().parents[1]
         pw=secrets.token_hex(24)
-        created_role=created_db=False
+        created_role=created_db=created_owner=False
+        owner_pw=secrets.token_hex(24)
         admin=psycopg.connect(admin_dsn,autocommit=True)
         try:
             from psycopg import sql
             admin.execute(sql.SQL("CREATE ROLE cvcloud_auth LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION PASSWORD {}").format(sql.Literal(pw)))
             created_role=True
-            admin.execute("CREATE DATABASE cvcloud_online")
+            admin.execute(sql.SQL("CREATE ROLE cvcloud_schema_owner LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION PASSWORD {}").format(sql.Literal(owner_pw)))
+            created_owner=True
+            admin.execute("CREATE DATABASE cvcloud_online OWNER cvcloud_schema_owner")
             created_db=True
             online_admin=make_conninfo(admin_dsn,dbname="cvcloud_online")
-            with psycopg.connect(online_admin,autocommit=True) as db:
+            owner_dsn=make_conninfo(online_admin,user="cvcloud_schema_owner",password=owner_pw)
+            def owner_connect():
+                return psycopg.connect(owner_dsn)
+            with psycopg.connect(owner_dsn,autocommit=True) as db:
                 for path in ("cloud/migrations/001_auth.sql","cloud/migrations/004_auth_epoch.sql","cloud/deploy/online_auth_grants.sql"):
                     db.execute((root/path).read_text(encoding="utf-8"),prepare=False)
-                tenant="10000000-0000-4000-8000-000000000001"
-                user="20000000-0000-4000-8000-000000000001"
-                db.execute("INSERT INTO cvcloud.tenants (id,slug) VALUES (%s,'a')",(tenant,))
-                db.execute("INSERT INTO cvcloud.users (tenant_id,id,email_normalized,password_hash,role) VALUES (%s,%s,'user@example.test',%s,'owner')",(tenant,user,password_hash(PASSWORD)))
+            tenant,user=provision_owner(owner_connect,tenant="a",email="USER@example.test",password=PASSWORD)
+            with self.assertRaises(ValueError):
+                provision_owner(owner_connect,tenant="a",email="different@example.test",password="a-different-password")
+            with owner_connect() as db:
+                self.assertEqual(db.execute("SELECT count(*) FROM cvcloud.users").fetchone(),(1,))
+                record=db.execute("SELECT email_normalized,password_hash,role FROM cvcloud.users WHERE tenant_id=%s AND id=%s",(tenant,user)).fetchone()
+                self.assertEqual((record[0],record[2]),("user@example.test","owner"))
+                self.assertNotEqual(record[1],PASSWORD)
             runtime=make_conninfo(admin_dsn,dbname="cvcloud_online",user="cvcloud_auth",password=pw)
             def connect():
                 return psycopg.connect(runtime)
+            with self.assertRaises(RuntimeError):
+                provision_owner(connect,tenant="blocked",email="blocked@example.test",password=PASSWORD)
             app=build_online_auth(config=OnlineAuthConfig(ORIGIN,PROXY,pw),connect=connect)
             client=Client(app,Response)
             headers={"Origin":ORIGIN,"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https"}
@@ -107,5 +119,7 @@ class OnlineAuthPostgresTest(unittest.TestCase):
                     admin.execute("DROP DATABASE cvcloud_online WITH (FORCE)")
                 if created_role:
                     admin.execute("DROP ROLE cvcloud_auth")
+                if created_owner:
+                    admin.execute("DROP ROLE cvcloud_schema_owner")
             finally:
                 admin.close()
