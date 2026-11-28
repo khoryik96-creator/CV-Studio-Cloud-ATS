@@ -45,11 +45,12 @@ class TestExistingShell(unittest.TestCase):
 
     def test_optional_batch_original_controls(self):
         root=html.fromstring(render_shell(enable_batch=True))
-        for key in ("viewBatch","batchFileInput","batchTabFormat","batchTabBlind","btnBatchRun","cloudBatchClear","batchFileList"):
+        for key in ("viewBatch","batchFileInput","batchTabFormat","batchTabBlind","btnBatchRun","btnBatchDownload","cloudBatchClear","batchFileList"):
             self.assertEqual(len(root.xpath(".//*[@id=$key]",key=key)),1,key)
         self.assertIsNone(root.xpath(".//*[@id='tabBatch']")[0].get("disabled"))
         self.assertIsNotNone(root.xpath(".//*[@id='batchFileInput']")[0].get("multiple"))
-        self.assertFalse(root.xpath(".//*[@id='batchAiQuickPanel' or @id='batchJAStatus' or @id='btnBatchDownload']"))
+        self.assertIsNotNone(root.get_element_by_id("btnBatchDownload").get("disabled"))
+        self.assertFalse(root.xpath(".//*[@id='batchAiQuickPanel' or @id='batchJAStatus']"))
         self.assertTrue(root.xpath(".//script[@src='/cloud-ui/assets/batch_cloud.js']"))
         for node in root.iter():
             self.assertFalse(any(k.lower().startswith("on") for k in node.attrib))
