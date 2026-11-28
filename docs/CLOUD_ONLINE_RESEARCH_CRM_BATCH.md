@@ -38,3 +38,36 @@ Profile (company briefing) from Create Profile (candidate upload).
 Next: complete CRM role/grants, attempt journal and OAuth sandbox resolver,
 then one cohesive PR and Linux CI. Keep public ingress and live external
 writes disabled; no VPS or HyPlug modifications.
+
+## Sandbox offline acceptance checkpoint
+
+Implemented a signed additive CRM installation with a function-only durable
+attempt journal. The worker must present the exact running lease, tenant,
+owner and confirmed sandbox account. The database commits the attempt before
+remote dispatch. A unique job and tenant/account/HMAC email fence blocks
+repeat writes after process restarts, including a different job for the same
+email. Keep the 32-byte journal HMAC key stable and securely backed up;
+rotation or journal deletion must not silently reopen a write. A blocked or
+uncertain attempt requires manual review. No automatic release/replay.
+
+SandboxBindings validates account number, instance and HTTPS API base from a
+trusted OAuth token exchange against an independently verified sandbox
+allowlist. It pins a non-refreshing expiring token to the account and revision.
+JobAdder's OAuth documentation describes these response fields:
+https://jobadderapi.zendesk.com/hc/en-us/articles/360022196774-OAuth2-Authentication
+An OAuth response alone does not establish that the account is a sandbox.
+The OAuth callback, encrypted durable token storage and refresh/disconnect
+lifecycle are still required. No real connection or token exchange was made.
+
+SandboxCreateProfile integrates the existing confirmation flow with the
+lease-aware adapter and the journal; the original staging service is unchanged.
+Disposable PostgreSQL tests exercise signed installation, wrong lease,
+cross-tenant rejection, restart and duplicate fencing, then actual DOCX
+review/confirmation/dispatch using a fake client and recorded results. The
+service is deliberately not mounted in production HTTP or worker composition.
+Actual sandbox API contract and remote outcome reconciliation remain unverified.
+
+Submit this cohesive offline foundation for CI, not as a production-ready
+CRM. Automatic online company research, encrypted OAuth lifecycle, explicit
+sandbox operator approval, controlled egress, real API acceptance and public
+release remain outstanding. No VPS or HyPlug changes.
