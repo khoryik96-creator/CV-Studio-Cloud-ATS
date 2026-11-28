@@ -37,7 +37,8 @@ def seed():
     if not migrations:
         raise RuntimeError("No migrations")
     signature = hashlib.sha256(b"".join(p.read_bytes() for p in migrations)).hexdigest()
-    with psycopg.connect(ADMIN, autocommit=True, connect_timeout=5) as db:
+    with psycopg.connect(ADMIN, connect_timeout=5) as db:
+        db.execute("SELECT pg_advisory_xact_lock(20261128, 40)")
         if db.execute("SELECT to_regnamespace('cvcloud')").fetchone()[0] is not None:
             if db.execute("SELECT to_regclass('public.cvcloud_fixture_marker')").fetchone()[0] is None:
                 raise RuntimeError("Refusing existing unmarked database")
@@ -46,17 +47,27 @@ def seed():
             return
         db.execute("CREATE ROLE cvcloud_runtime LOGIN PASSWORD 'synthetic-runtime-only' NOSUPERUSER NOBYPASSRLS")
         for path in migrations:
-            db.execute(path.read_text(), prepare=False)
-        with db.transaction():
-            db.execute("GRANT USAGE ON SCHEMA cvcloud TO cvcloud_runtime")
-            db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA cvcloud TO cvcloud_runtime")
-            for tenant, user, slug in ((TENANT, USER, "fictional"), (OTHER_TENANT, OTHER_USER, "fictional-other")):
-                db.execute("INSERT INTO cvcloud.tenants (id,slug) VALUES (%s,%s)", (tenant,slug))
-                db.execute("INSERT INTO cvcloud.users (tenant_id,id,email_normalized,password_hash,role) VALUES (%s,%s,%s,%s,'recruiter')",
-                           (tenant,user,EMAIL,password_hash(PASSWORD)))
-                db.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)", (tenant,))
-            db.execute("CREATE TABLE public.cvcloud_fixture_marker (signature text PRIMARY KEY)")
-            db.execute("INSERT INTO public.cvcloud_fixture_marker VALUES (%s)", (signature,))
+            # The standalone SQL files each wrap their own transaction. Keep
+            # their statements inside the seed transaction instead.
+            prefix, begin, statements = path.read_text(encoding="utf-8").partition("\nBEGIN;\n")
+            if not begin:
+                statements = prefix.removeprefix("BEGIN;\n")
+                if statements == prefix:
+                    raise RuntimeError(f"Missing transaction wrapper in {path.name}")
+                prefix = ""
+            statements = statements.rstrip()
+            if not statements.endswith("\nCOMMIT;"):
+                raise RuntimeError(f"Missing transaction wrapper in {path.name}")
+            db.execute(prefix + "\n" + statements.removesuffix("\nCOMMIT;"), prepare=False)
+        db.execute("GRANT USAGE ON SCHEMA cvcloud TO cvcloud_runtime")
+        db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA cvcloud TO cvcloud_runtime")
+        for tenant, user, slug in ((TENANT, USER, "fictional"), (OTHER_TENANT, OTHER_USER, "fictional-other")):
+            db.execute("INSERT INTO cvcloud.tenants (id,slug) VALUES (%s,%s)", (tenant,slug))
+            db.execute("INSERT INTO cvcloud.users (tenant_id,id,email_normalized,password_hash,role) VALUES (%s,%s,%s,%s,'recruiter')",
+                       (tenant,user,EMAIL,password_hash(PASSWORD)))
+            db.execute("INSERT INTO cvcloud.ai_budgets (tenant_id,limit_microusd) VALUES (%s,1000000)", (tenant,))
+        db.execute("CREATE TABLE public.cvcloud_fixture_marker (signature text PRIMARY KEY)")
+        db.execute("INSERT INTO public.cvcloud_fixture_marker VALUES (%s)", (signature,))
 
 def environment(*, reverse=False):
     from cloud.auth import Principal

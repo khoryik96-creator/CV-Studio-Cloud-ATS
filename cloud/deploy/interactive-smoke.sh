@@ -11,4 +11,7 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 compose config --quiet
 compose up --build -d --wait --wait-timeout 180
-compose exec -T web python -m cloud.deploy.interactive_check
+job_id=$(compose exec -T web python -m cloud.deploy.interactive_check)
+compose down
+compose up -d --wait --wait-timeout 180
+compose exec -T web python -m cloud.deploy.interactive_check persistence "$job_id"
