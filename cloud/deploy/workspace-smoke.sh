@@ -73,7 +73,7 @@ origin="https://cvstudio.hyplug.co"
 headers={"Host":"cvstudio.hyplug.co","Origin":origin,"X-Forwarded-For":"192.0.2.1","X-Forwarded-Proto":"https","Content-Type":"application/json"}
 assert req("GET","/readyz",headers)[0]==503
 status,_,page=req("GET","/cloud-ui",headers)
-assert status==200 and b"Online workspace candidate" in page and b'id="viewJDAnon"' in page and b'id="viewCompany"' not in page
+assert status==200 and b"Online workspace candidate" in page and b"id=\"viewJDAnon\"" in page and b"id=\"viewCompany\"" not in page
 status,cookie,_=req("POST","/api/auth/login",headers,json.dumps({"tenant":"fictional","email":"owner@example.test","password":"synthetic-owner-ci-only-123"}))
 assert status==200 and "Secure" in cookie and "HttpOnly" in cookie
 status,_,body=req("GET","/api/auth/me",dict(headers,Cookie=cookie.split(";")[0]))
