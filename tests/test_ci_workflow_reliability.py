@@ -22,7 +22,7 @@ def test_regression_ci_runs_on_pull_requests_and_merged_master() -> None:
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "push:\n    branches:\n      - master" in workflow
     assert "pull_request:\n    branches:\n      - master" in workflow
-    _assert_action_is_immutably_pinned(workflow, "actions/checkout", 2)
+    _assert_action_is_immutably_pinned(workflow, "actions/checkout", 3)  # Includes scope classifier checkout.
     _assert_action_is_immutably_pinned(workflow, "actions/setup-python", 2)
     _assert_action_is_immutably_pinned(workflow, "actions/setup-node", 1)
 
