@@ -80,7 +80,8 @@ def environment(*, reverse=False):
         principals=principals,
         public_origin=ORIGIN,fixture_source=(fixtures/"cloud_cv_source.txt").read_text(encoding="utf-8"),
         fixture_answer=(fixtures/"cloud_cv_parse.json").read_text(encoding="utf-8"),
-        strict_upload=True,concurrency=1)
+        fixture_blind_answer=(fixtures/"cloud_cv_blind.json").read_text(encoding="utf-8"),
+        strict_upload=True,enable_batch=True,concurrency=1)
 
 def web():
     from werkzeug.serving import make_ssl_devcert, run_simple

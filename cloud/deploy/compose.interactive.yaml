@@ -48,6 +48,7 @@ services:
     networks:
       fixture:
         aliases: [cv.example.test]
+      ingress: {}
     ports:
       - "127.0.0.1:443:8443"
     depends_on:
@@ -70,6 +71,10 @@ services:
 networks:
   fixture:
     internal: true
+  ingress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
 volumes:
   database:
   documents:
