@@ -38,9 +38,14 @@ def build_web():
     provider_connect=startup_step("provider-credentials",lambda:service_connection("provider"))
     research=startup_step("research-catalogue",load_research) if os.environ.get("CVCLOUD_RESEARCH_CATALOGUE_FILE") else None
     admin_connect=startup_step("admin-credentials",lambda:service_connection("admin"))
-    return startup_step("workspace-composition",lambda:assemble_workspace(
+    app=startup_step("workspace-composition",lambda:assemble_workspace(
         config=config,auth_connect=auth_connect,document_connect=document_connect,
         provider_connect=provider_connect,admin_connect=admin_connect,storage_root=STORAGE,cipher=cipher,catalogue=catalogue,enable_blind_jd=True,enable_company_profile=research is not None))
+    if os.environ.get("CVCLOUD_STAFF_ENROLLMENT") == "operator-approved":
+        from cloud.deploy.workspace_staff_web import register_staff_access, verify_staff_database
+        startup_step("staff-enrollment-policy", lambda:verify_staff_database(auth_connect))
+        register_staff_access(app, public_origin=config.origin)
+    return app
 
 def web():
     from waitress import serve

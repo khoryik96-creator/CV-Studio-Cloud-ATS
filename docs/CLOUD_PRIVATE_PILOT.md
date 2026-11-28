@@ -115,3 +115,10 @@ compose_worker ps worker
 ```
 
 Submit a new fictional job and verify the output. For rollback use `compose_worker stop worker`. The web service, outer access gate and database are outside the worker start and stop commands.
+
+
+## Optional one-time browser enrollment
+
+Staff links use `https://cvstudio.hyplug.co/staff/enroll#<one-time-token>`. The browser clears the fragment locally and sends the token only with the same-origin enrollment request after a staff member presses Continue. Use the existing operator-only enrollment issuance policy and a private delivery channel. Links expire after 24 hours. The server issues a revocable 90-day staff session. An enrolled browser reopens the workspace using that session.
+
+Install the reviewed staff database policy on the existing isolated project before setting `CVCLOUD_STAFF_ENROLLMENT=operator-approved` for the web service. The web service refuses to start with that flag if the restricted enrollment procedure is unavailable. Keep outer access protection in place until enrollment, revocation, per-user authorization and owner-only Settings are accepted on the hosted pilot.

@@ -100,6 +100,7 @@ services:
     <<: *app
     command: ["python","-m","cloud.deploy.workspace_entry","web"]
     environment:
+      CVCLOUD_STAFF_ENROLLMENT: "${CVCLOUD_STAFF_ENROLLMENT:-disabled}"
       CVCLOUD_PUBLIC_ORIGIN: "${CVCLOUD_PUBLIC_ORIGIN:?Set exact HTTPS origin}"
       CVCLOUD_TRUSTED_PROXY_IP: "${CVCLOUD_TRUSTED_PROXY_IP:?Set reserved ingress proxy IP}"
       CVCLOUD_AUTH_PASSWORD_FILE: /run/secrets/auth_password

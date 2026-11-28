@@ -79,8 +79,29 @@
      try{await binding.refresh();if(batchBinding)await batchBinding.refresh();if(scoringBinding)await scoringBinding.refresh();for(const report of Object.values(reportBindings))await report.refresh();if(profileBinding)await profileBinding.refresh();}catch(e){if(epoch===generation&&e.code==="authentication_required"){reset();say("Session expired. Sign in again.");}}
      finally{refreshing=false;}
    },4000);
-   // Expire inactive UI even when no job exists. The server remains authoritative.
-   sessionTimer=setTimeout(()=>{if(epoch===generation){reset();say("Please sign in again.");}},8*60*60*1000);
+   // Periodically verify online sessions, including enrolled 90-day staff cookies.
+   async function checkSession(){
+     if(epoch!==generation)return;
+     if(el("cloudLoginPanel").dataset.resumeSession==="true"){
+       try{
+         const response=await rawFetch("/api/auth/me",{credentials:"same-origin",cache:"no-store",redirect:"error"});
+         if(epoch!==generation)return;
+         if(response.ok){
+           const current=await response.json();
+           if(epoch!==generation)return;
+           if(current.user_id===session.userId&&current.role===session.role){
+             sessionTimer=setTimeout(checkSession,60*1000);
+             return;
+           }
+         }
+       }catch{
+         if(epoch===generation)sessionTimer=setTimeout(checkSession,60*1000);
+         return;
+       }
+     }
+     if(epoch===generation){reset();say("Please sign in again.");}
+   }
+   sessionTimer=setTimeout(checkSession,el("cloudLoginPanel").dataset.resumeSession==="true"?60*1000:8*60*60*1000);
  }
  login.addEventListener("submit",async event=>{
    event.preventDefault();
