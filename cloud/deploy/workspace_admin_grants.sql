@@ -25,7 +25,7 @@ BEGIN
     IF NOT FOUND THEN RETURN NULL; END IF;
     SELECT u.role INTO actor_role FROM cvcloud.users u
         WHERE u.tenant_id=t AND u.id=a AND u.active FOR SHARE;
-    IF actor_role NOT IN ('owner','admin') THEN RETURN NULL; END IF;
+    IF actor_role IS NULL OR actor_role NOT IN ('owner','admin') THEN RETURN NULL; END IF;
     RETURN actor_role;
 END;
 $body$;
